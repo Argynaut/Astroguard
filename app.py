@@ -1188,8 +1188,8 @@ def dashboard(store: Store, profile: dict) -> None:
         st.button("Check symptoms", type="primary", width="stretch", shortcut="Ctrl+K", on_click=navigate, args=("Symptom Check",))
     readings_panel = st.container()
     with st.expander("Enter current measurements", expanded=True):
-        with st.form("manual_telemetry_" + crew_id, clear_on_submit=True):
-            st.caption("Enter the readings for this measurement. Leave unknown values blank.")
+        with st.form("manual_telemetry_" + crew_id, clear_on_submit=False):
+            st.caption("Review all fields before saving a new measurement. Leave unknown values blank.")
             entered = vital_inputs(empty_values(), prefix="manual_" + crew_id)
             if st.form_submit_button("Save measured vitals", key="save_measured_vitals", type="primary"):
                 try:
@@ -1422,9 +1422,9 @@ def profile_view(store: Store, profile: dict) -> None:
             age = c.number_input("Age", min_value=16, max_value=100, value=int(profile["age"]) if known(profile["age"]) else None, key="profile_age_" + crew_id)
             blood = d.selectbox("Blood type", BLOOD_TYPES, index=BLOOD_TYPES.index(profile["blood_type"]) if profile["blood_type"] in BLOOD_TYPES else 0, format_func=lambda value: value or "Not provided")
             allergies = st.text_input("Allergies", profile["allergies"], max_chars=500, key="profile_allergies_" + crew_id)
-            markup('<div class="small-label" style="margin-top:18px">Personal biometric baselines</div>')
+            st.subheader("Personal Medical Baseline (Reference Values)")
+            st.caption("Эти значения являются персональной базовой нормой астронавта, с которой ИИ сравнивает текущие симптомы и замеры.")
             baseline = vital_inputs(profile["baseline"], prefix="baseline_" + crew_id)
-            st.caption("Leave unknown baselines blank. These values are used for comparison with recorded measurements.")
             if st.form_submit_button("Update profile & baseline", key="save_profile", type="primary"):
                 updated = {**profile, "name": name.strip(), "role": role.strip(), "age": age, "blood_type": blood, "allergies": allergies.strip(), "baseline": baseline}
                 try:
