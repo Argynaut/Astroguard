@@ -38,11 +38,11 @@ DB_PATH = Path(os.environ["ASTROGUARD_DB"]) if os.environ.get("ASTROGUARD_DB") e
 SEVERITIES = ("Monitor", "Treat onboard", "Contact ground", "Emergency evacuation")
 SEVERITY_COLORS = ("#38bdf8", "#34d399", "#f59e0b", "#fb7185")
 METRICS = {
-    "hr": {"label": "Heart rate", "unit": "bpm", "precision": 0, "tolerance": 10.0, "symbol": "♡", "limits": (20, 240)},
+    "hr": {"label": "Heart rate", "unit": "bpm", "precision": 0, "symbol": "♡"},
     "bp": {"label": "Blood pressure", "unit": "mmHg", "symbol": "↗"},
-    "temp": {"label": "Temperature", "unit": "°C", "precision": 1, "tolerance": 0.6, "symbol": "°", "limits": (32, 43)},
-    "spo2": {"label": "SpO₂", "unit": "%", "precision": 0, "tolerance": 2.0, "symbol": "◉", "limits": (50, 100)},
-    "sleep": {"label": "Sleep", "unit": "h", "precision": 1, "tolerance": 1.5, "symbol": "☾", "limits": (0, 24)},
+    "temp": {"label": "Temperature", "unit": "°C", "precision": 1, "symbol": "°"},
+    "spo2": {"label": "SpO₂", "unit": "%", "precision": 0, "symbol": "◉"},
+    "sleep": {"label": "Sleep", "unit": "h", "precision": 1, "symbol": "☾"},
 }
 RED_FLAGS = ("Chest pain / pressure", "Trouble breathing", "Loss of consciousness", "Severe bleeding", "New weakness / confusion", "Seizure")
 RED_FLAG_PATTERNS = {
@@ -93,7 +93,10 @@ def json_text(value: Any) -> str:
 VALUE_KEYS = ("hr", "sys", "dia", "temp", "spo2", "sleep")
 VALUE_LABELS = {"hr": "Heart rate", "sys": "Systolic pressure", "dia": "Diastolic pressure", "temp": "Temperature", "spo2": "SpO₂", "sleep": "Sleep"}
 VALUE_LIMITS = {"hr": (20.0, 240.0), "sys": (60.0, 240.0), "dia": (30.0, 160.0), "temp": (32.0, 43.0), "spo2": (50.0, 100.0), "sleep": (0.0, 24.0)}
+VALUE_TOLERANCES = {"hr": 10, "sys": 15, "dia": 10, "temp": 0.6, "spo2": 2, "sleep": 1.5}
 BLOOD_TYPES = ["", "A Rh+", "A Rh-", "B Rh+", "B Rh-", "AB Rh+", "AB Rh-", "O Rh+", "O Rh-", "Unknown"]
+BASELINE_TITLE = "Personal Medical Baseline (Reference Values)"
+BASELINE_DESCRIPTION = "Эти значения являются персональной базовой нормой астронавта, с которой ИИ сравнивает текущие симптомы и замеры."
 
 
 def empty_values() -> dict:
@@ -119,8 +122,8 @@ def baseline_range(baseline: dict, metric: str) -> tuple[float, float] | None:
     value = baseline.get(metric)
     if not known(value):
         return None
-    tolerance = METRICS[metric]["tolerance"]
-    lower, upper = METRICS[metric]["limits"]
+    tolerance = VALUE_TOLERANCES[metric]
+    lower, upper = VALUE_LIMITS[metric]
     return max(lower, value - tolerance), min(upper, value + tolerance)
 
 
@@ -132,13 +135,13 @@ def comparable(vitals: dict, baseline: dict, metric: str) -> bool:
 def deviations(vitals: dict, baseline: dict) -> list[str]:
     result = []
     for metric in METRICS:
-        if metric == "bp":
-            abnormal = any(known(vitals.get(key)) and known(baseline.get(key)) and abs(vitals[key] - baseline[key]) > tolerance for key, tolerance in (("sys", 15), ("dia", 10)))
-        else:
-            limits = baseline_range(baseline, metric)
-            abnormal = bool(limits and known(vitals.get(metric)) and not limits[0] <= vitals[metric] <= limits[1])
-        if abnormal:
-            result.append(metric)
+        keys = ("sys", "dia") if metric == "bp" else (metric,)
+        for key in keys:
+            limits = baseline_range(baseline, key)
+            reading = vitals.get(key)
+            if limits and known(reading) and not limits[0] <= reading <= limits[1]:
+                result.append(metric)
+                break
     return result
 
 
@@ -825,16 +828,15 @@ def make_chart(frame: pd.DataFrame, baseline: dict, metric: str, period: str, pr
     if not frame.empty:
         end = frame["timestamp"].max().to_pydatetime()
         data = frame[frame["timestamp"] >= end - timedelta(hours={"24h": 24, "3d": 72, "7d": 168}[period])]
-        series = [("sys", "Systolic", "#2dd4bf", 15), ("dia", "Diastolic", "#60a5fa", 10)] if metric == "bp" else [(metric, METRICS[metric]["label"], "#2dd4bf", METRICS[metric]["tolerance"])]
-        for key, label, color, tolerance in series:
+        series = [("sys", "Systolic", "#2dd4bf"), ("dia", "Diastolic", "#60a5fa")] if metric == "bp" else [(metric, METRICS[metric]["label"], "#2dd4bf")]
+        for key, label, color in series:
             values = data.dropna(subset=[key])
             if values.empty:
                 continue
-            reference = baseline.get(key)
-            if known(reference):
-                limits = (reference - tolerance, reference + tolerance) if metric == "bp" else baseline_range(baseline, metric)
+            limits = baseline_range(baseline, key)
+            if limits:
                 figure.add_hrect(y0=limits[0], y1=limits[1], fillcolor=color, opacity=0.055, line_width=0)
-                figure.add_hline(y=reference, line_dash="dot", line_color=color, opacity=0.5)
+                figure.add_hline(y=baseline[key], line_dash="dot", line_color=color, opacity=0.5)
             figure.add_trace(go.Scatter(x=values["timestamp"], y=values[key], name=label, mode="lines+markers", marker={"size": 3}, line={"color": color, "width": 2.6}, hovertemplate="%{x|%d %b %H:%M UTC}<br>%{y:.1f}<extra>" + label + "</extra>"))
             figure.add_trace(go.Scatter(x=[values["timestamp"].iloc[-1]], y=[values[key].iloc[-1]], name="Latest " + label, mode="markers", marker={"color": "#f59e0b", "size": 9, "line": {"color": "#0c121e", "width": 2}}, showlegend=False))
             if projection:
@@ -956,7 +958,21 @@ button[kind="secondary"] p,button[kind="tertiary"] p {color:inherit;}
 .cause {padding:12px 0;border-bottom:1px solid #1c2a3f;font-size:13px;line-height:1.6;}
 .cause small {color:#8294ac;font-size:11px;display:block;margin-top:4px;}
 .cause-badge {font-size:10px;color:#5eead4;float:right;padding-left:6px;}
-.profile-avatar {width:68px;height:68px;border-radius:50%;background:#2dd4bf0f;border:1px solid #2dd4bf88;display:flex;align-items:center;justify-content:center;color:#2dd4bf;font-size:22px;margin:5px 0 18px;}
+.profile-header {display:flex;align-items:center;gap:18px;padding:4px 0 12px;}
+.profile-header h2 {margin:0;padding:0;font-size:clamp(1.35rem,3vw,1.9rem);overflow-wrap:anywhere;}
+.profile-header p {margin:5px 0 0;color:#94a3b8;overflow-wrap:anywhere;}
+.profile-avatar {width:72px;height:72px;flex-shrink:0;border-radius:50%;border:2px solid transparent;background:linear-gradient(#111a28,#111a28) padding-box,linear-gradient(135deg,#2dd4bf,#0284c7) border-box;display:grid;place-items:center;color:#5eead4;font-size:23px;font-weight:650;}
+.profile-fields {display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,145px),1fr));gap:10px;margin:0;}
+.profile-fields div {min-width:0;padding:12px 14px;border:1px solid #1c2a3f;border-radius:12px;background:#0c121e;}
+.profile-fields dt {font-size:12px;color:#94a3b8;}
+.profile-fields dd {margin:4px 0 0;color:#e2e8f0;overflow-wrap:anywhere;}
+.profile-baselines dd {color:#5eead4;font-weight:650;}
+.table-fallback {max-height:420px;overflow:auto;border:1px solid #1c2a3f;border-radius:12px;background:#111a28;}
+.table-fallback table {width:100%;border-collapse:separate;border-spacing:0;font-size:13px;color:#e2e8f0;}
+.table-fallback th,.table-fallback td {padding:10px 12px;text-align:left;vertical-align:top;border-bottom:1px solid #1c2a3f;}
+.table-fallback th {position:sticky;top:0;background:#172439;color:#dbeafe;white-space:nowrap;}
+.table-fallback td {min-width:85px;max-width:380px;overflow-wrap:anywhere;}
+.table-fallback tr:last-child td {border-bottom:0;}
 .footer-note {font-size:10px;color:#536c83;border-top:1px solid #1c2a3f;padding-top:18px;margin-top:26px;line-height:1.7;}
 .step {color:#2dd4bf;font-size:11px;letter-spacing:.7px;}
 @media(max-width:1100px) {.metrics-grid {gap:8px}.metric-card {padding:14px 11px}.metric-value {font-size:22px}}
@@ -967,6 +983,16 @@ button[kind="secondary"] p,button[kind="tertiary"] p {color:inherit;}
 
 def markup(content: str) -> None:
     st.markdown(content, unsafe_allow_html=True)
+
+
+def display_table(rows: list[dict], *, row_height: int | None = None) -> None:
+    frame = pd.DataFrame(rows)
+    try:
+        st.dataframe(frame, hide_index=True, width="stretch", row_height=row_height)
+    except ImportError:
+        # Streamlit's native table imports PyArrow, whose DLL may be blocked on Windows.
+        table = frame.to_html(index=False, escape=True, border=0)
+        st.html(f'<div class="table-fallback" role="region" aria-label="Table" tabindex="0">{table}</div>')
 
 
 def configure_native_theme() -> None:
@@ -990,6 +1016,7 @@ def configure_native_theme() -> None:
 
 
 def navigate(page: str) -> None:
+    st.session_state.pop("editing_profile", None)
     st.session_state["page"] = page
 
 
@@ -1046,6 +1073,7 @@ def request_new_profile() -> None:
 def select_crew(store: Store) -> None:
     store.set_setting("selected_crew", st.session_state["crew_picker"])
     st.session_state["creating_profile"] = False
+    st.session_state.pop("editing_profile", None)
 
 
 def sidebar(store: Store, profiles: list[dict]) -> dict | None:
@@ -1092,12 +1120,30 @@ def topbar(store: Store, profile: dict) -> None:
     markup(f'<div class="statusbar"><span><strong>{escape(profile["name"])}</strong>{mission}</span><div class="status-right"><span><i class="dot" style="background:{color}"></i>{mode}</span><span><i class="dot" style="background:{color}"></i>Ground link: {link}</span></div></div>')
 
 
-def vital_inputs(values: dict, *, prefix: str) -> dict:
+def measurement_reference(baseline: dict, key: str) -> str:
+    limits = baseline_range(baseline, key)
+    if limits is None:
+        return "Baseline not set"
+    metric = METRICS["bp" if key in ("sys", "dia") else key]
+    precision, unit = metric.get("precision", 0), metric["unit"]
+    lower, upper = limits
+    tolerance_unit = "points" if key == "spo2" else unit
+    return (
+        f"Baseline {baseline[key]:.{precision}f} {unit} · "
+        f"{lower:.{precision}f}–{upper:.{precision}f} {unit} "
+        f"(±{VALUE_TOLERANCES[key]:g} {tolerance_unit})"
+    )
+
+
+def vital_inputs(values: dict, *, prefix: str, reference: dict | None = None) -> dict:
     labels = {"hr": "Heart rate (bpm)", "sys": "Systolic (mmHg)", "dia": "Diastolic (mmHg)", "temp": "Temperature (°C)", "spo2": "SpO₂ (%)", "sleep": "Sleep (h / night)"}
     columns, entered = st.columns(3), {}
     for index, (key, (low, high)) in enumerate(VALUE_LIMITS.items()):
         value = float(values[key]) if known(values.get(key)) else None
-        entered[key] = columns[index % 3].number_input(labels[key], min_value=low, max_value=high, value=value, step=0.1 if key in ("temp", "sleep") else 1.0, format="%.1f" if key in ("temp", "sleep") else "%.0f", key=prefix + "_" + key, placeholder="Not entered", help="Leave blank if unknown. This field is never filled with a demo value.")
+        column = columns[index % 3]
+        entered[key] = column.number_input(labels[key], min_value=low, max_value=high, value=value, step=0.1 if key in ("temp", "sleep") else 1.0, format="%.1f" if key in ("temp", "sleep") else "%.0f", key=prefix + "_" + key, placeholder="Not entered", help="Leave blank if unknown. This field is never filled with a demo value.")
+        if reference is not None:
+            column.caption(measurement_reference(reference, key))
     return entered
 
 
@@ -1178,6 +1224,12 @@ def data_used(profile: dict, vitals: dict, sleep_average: float | None) -> None:
             st.caption("No measurements entered. Symptom-only analysis is available; missing values are not assumed normal.")
 
 
+def clear_measurement_fields(crew_id: str) -> None:
+    st.session_state["measurement_drafts"].pop(crew_id, None)
+    for key in VALUE_KEYS:
+        st.session_state[f"manual_{crew_id}_{key}"] = None
+
+
 def dashboard(store: Store, profile: dict) -> None:
     crew_id, baseline = profile["id"], profile["baseline"]
     title, action = st.columns([3, 1])
@@ -1188,16 +1240,20 @@ def dashboard(store: Store, profile: dict) -> None:
         st.button("Check symptoms", type="primary", width="stretch", shortcut="Ctrl+K", on_click=navigate, args=("Symptom Check",))
     readings_panel = st.container()
     with st.expander("Enter current measurements", expanded=True):
+        drafts = st.session_state.setdefault("measurement_drafts", {})
         with st.form("manual_telemetry_" + crew_id, clear_on_submit=False):
-            st.caption("Review all fields before saving a new measurement. Leave unknown values blank.")
-            entered = vital_inputs(empty_values(), prefix="manual_" + crew_id)
-            if st.form_submit_button("Save measured vitals", key="save_measured_vitals", type="primary"):
+            st.caption("Fields keep their values for this session. Review them before saving a new measurement. Leave unknown values blank.")
+            entered = vital_inputs(drafts.get(crew_id, {}), prefix="manual_" + crew_id, reference=baseline)
+            save, clear = st.columns(2)
+            if save.form_submit_button("Save measured vitals", key="save_measured_vitals", type="primary"):
+                drafts[crew_id] = entered
                 try:
                     store.add_sample(crew_id, entered)
                 except ValueError as error:
                     st.error(str(error))
                 else:
                     st.success("Measurements saved to SQLite.")
+            clear.form_submit_button("Clear fields", key="clear_measured_vitals", on_click=clear_measurement_fields, args=(crew_id,))
 
     vitals, frame = store.latest_vitals(crew_id), store.telemetry(crew_id)
     with readings_panel:
@@ -1213,7 +1269,7 @@ def dashboard(store: Store, profile: dict) -> None:
         with st.expander("Review deviations"):
             for metric in changed:
                 st.write(f"**{METRICS[metric]['label']}:** {metric_value(vitals, metric)} · baseline {metric_value(baseline, metric)}")
-            st.caption(f"{compared}/5 metrics can be compared. Missing baselines or measurements are shown as —. Reference widths: HR ±10 bpm, BP ±15/10 mmHg, temperature ±0.6 °C, SpO₂ ±2 points, sleep ±1.5 h. Absolute escalation rules remain separate.")
+            st.caption(f"{compared}/5 metrics can be compared. Missing baselines or measurements are shown as —. See the measurement fields for personal reference ranges.")
         metric_cards(vitals, baseline, st.session_state.get("trend_metric", "hr"))
         screening = assess(profile, vitals, {"description": "", "pain": None, "duration_hours": None, "red_flags": [], "kind": "routine"})
         if screening["severity_index"] == 3:
@@ -1264,7 +1320,7 @@ def dashboard(store: Store, profile: dict) -> None:
                 "Baseline comparisons": sum(comparable(sample, reference, metric) for metric in METRICS),
                 "Deviations": len(deviations(sample, reference)),
             })
-        st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
+        display_table(rows)
     reports = store.reports(crew_id, saved_only=False)
     ground_panel(store, crew_id, reports[0] if reports else None)
 
@@ -1386,54 +1442,77 @@ def confirm_profile_deletion(store: Store, profile: dict) -> None:
         else:
             st.session_state.pop("assessment_" + crew_id, None)
             st.session_state.pop("show_result_" + crew_id, None)
+            st.session_state.get("measurement_drafts", {}).pop(crew_id, None)
             notify("Profile and its related records were deleted from SQLite.")
             st.rerun()
 
 
+def edit_profile(store: Store, profile: dict) -> None:
+    crew_id = profile["id"]
+    with st.form("profile_form_" + crew_id):
+        c, d = st.columns(2)
+        name = c.text_input("Full name", profile["name"], max_chars=100, key="profile_name_" + crew_id)
+        role = d.text_input("Mission role", profile["role"], max_chars=100, key="profile_role_" + crew_id)
+        age = c.number_input("Age", min_value=16, max_value=100, value=int(profile["age"]) if known(profile["age"]) else None, key="profile_age_" + crew_id)
+        blood = d.selectbox("Blood type", BLOOD_TYPES, index=BLOOD_TYPES.index(profile["blood_type"]) if profile["blood_type"] in BLOOD_TYPES else 0, format_func=lambda value: value or "Not provided")
+        allergies = st.text_input("Allergies", profile["allergies"], max_chars=500, key="profile_allergies_" + crew_id)
+        st.subheader(BASELINE_TITLE)
+        st.caption(BASELINE_DESCRIPTION)
+        baseline = vital_inputs(profile["baseline"], prefix="baseline_" + crew_id)
+        if st.form_submit_button("Update profile & baseline", key="save_profile", type="primary"):
+            updated = {**profile, "name": name.strip(), "role": role.strip(), "age": age, "blood_type": blood, "allergies": allergies.strip(), "baseline": baseline}
+            try:
+                store.update_profile(updated)
+            except ValueError as error:
+                st.error(str(error))
+            else:
+                navigate("Profile")
+                notify("Profile, optional baselines and the action log were committed to SQLite.")
+                st.rerun()
+    cancel, clear = st.columns(2)
+    cancel.button("Cancel", key="cancel_profile_edit", on_click=navigate, args=("Profile",))
+    clear.button("Clear all baseline values", key="clear_baseline", on_click=clear_baseline_inputs, args=(store, crew_id))
+    clear.caption("Clearing the baseline updates SQLite immediately. Existing reports retain their original snapshots.")
+
+
 def profile_view(store: Store, profile: dict) -> None:
     st.title("Astronaut medical profile")
-    st.caption("Edit your personal details and baselines. Enter current measurements on the Dashboard.")
-    a, b = st.columns([1, 2.1], gap="large")
     crew_id = profile["id"]
-    with a:
-        with st.container(key="profile_card"):
-            initials = "".join(part[0] for part in profile["name"].split()[:2])
-            markup(f'<div class="profile-avatar">{escape(initials)}</div>')
-            st.subheader(profile["name"])
-            if profile["role"]:
-                st.caption(profile["role"])
-            rows = [("Age", display_number(profile["age"], 0, " years")), ("Blood type", profile["blood_type"] or "—"), ("Allergies", profile["allergies"] or "—")]
-            for label, value in rows:
-                markup(f'<div class="data-row"><span>{escape(label)}</span><strong>{escape(value)}</strong></div>')
-            st.caption(("Optional demo profile" if profile["is_demo"] else "Personal profile") + f" · updated {parse_time(profile['updated_at']):%d %b %Y %H:%M UTC}")
-        st.button("Clear all baseline values", key="clear_baseline", on_click=clear_baseline_inputs, args=(store, crew_id), width="stretch")
-        st.caption("Clearing the baseline updates SQLite immediately. Existing reports retain their original snapshots.")
-        st.button("Create another profile", key="create_another_profile", on_click=request_new_profile, width="stretch")
-        last_profile = len(store.profiles()) <= 1
-        if st.button("Delete profile", key="delete_profile", disabled=last_profile, width="stretch"):
-            confirm_profile_deletion(store, profile)
-        if last_profile:
-            st.caption("The last profile cannot be deleted.")
-    with b:
-        with st.form("profile_form_" + crew_id):
-            c, d = st.columns(2)
-            name = c.text_input("Full name", profile["name"], max_chars=100, key="profile_name_" + crew_id)
-            role = d.text_input("Mission role", profile["role"], max_chars=100, key="profile_role_" + crew_id)
-            age = c.number_input("Age", min_value=16, max_value=100, value=int(profile["age"]) if known(profile["age"]) else None, key="profile_age_" + crew_id)
-            blood = d.selectbox("Blood type", BLOOD_TYPES, index=BLOOD_TYPES.index(profile["blood_type"]) if profile["blood_type"] in BLOOD_TYPES else 0, format_func=lambda value: value or "Not provided")
-            allergies = st.text_input("Allergies", profile["allergies"], max_chars=500, key="profile_allergies_" + crew_id)
-            st.subheader("Personal Medical Baseline (Reference Values)")
-            st.caption("Эти значения являются персональной базовой нормой астронавта, с которой ИИ сравнивает текущие симптомы и замеры.")
-            baseline = vital_inputs(profile["baseline"], prefix="baseline_" + crew_id)
-            if st.form_submit_button("Update profile & baseline", key="save_profile", type="primary"):
-                updated = {**profile, "name": name.strip(), "role": role.strip(), "age": age, "blood_type": blood, "allergies": allergies.strip(), "baseline": baseline}
-                try:
-                    store.update_profile(updated)
-                except ValueError as error:
-                    st.error(str(error))
-                else:
-                    notify("Profile, optional baselines and the action log were committed to SQLite.")
-                    st.rerun()
+    if st.session_state.get("editing_profile") == crew_id:
+        edit_profile(store, profile)
+        return
+
+    with st.container(key="profile_card"):
+        initials = "".join(part[0] for part in profile["name"].split()[:2]).upper()
+        markup(
+            '<div class="profile-header">'
+            f'<div class="profile-avatar" aria-hidden="true">{escape(initials)}</div>'
+            f'<div><h2>{escape(profile["name"])}</h2><p>{escape(profile["role"] or "Role not set")}</p></div>'
+            "</div>"
+        )
+        details = [("Age", display_number(profile["age"], 0, " years")), ("Blood type", profile["blood_type"] or "—"), ("Allergies", profile["allergies"] or "—")]
+        detail_tiles = "".join(f"<div><dt>{label}</dt><dd>{escape(value)}</dd></div>" for label, value in details)
+        markup(f'<dl class="profile-fields">{detail_tiles}</dl>')
+        st.subheader(BASELINE_TITLE)
+        st.caption(BASELINE_DESCRIPTION)
+        baseline = profile["baseline"]
+        values = []
+        for metric, info in METRICS.items():
+            value = metric_value(baseline, metric)
+            if metric == "bp":
+                value = value + " mmHg" if known(baseline["sys"]) or known(baseline["dia"]) else "—"
+            values.append(f'<div><dt>{escape(info["label"])}</dt><dd>{escape(value)}</dd></div>')
+        markup('<dl class="profile-fields profile-baselines">' + "".join(values) + "</dl>")
+        st.caption(("Optional demo profile" if profile["is_demo"] else "Personal profile") + f" · updated {parse_time(profile['updated_at']):%d %b %Y %H:%M UTC}")
+
+    edit, create, delete = st.columns(3)
+    edit.button("Edit profile", key="edit_profile", type="primary", width="stretch", on_click=st.session_state.update, args=({"editing_profile": crew_id},))
+    create.button("Create another profile", key="create_another_profile", width="stretch", on_click=request_new_profile)
+    last_profile = len(store.profiles()) <= 1
+    if delete.button("Delete profile", key="delete_profile", width="stretch", disabled=last_profile):
+        confirm_profile_deletion(store, profile)
+    if last_profile:
+        delete.caption("The last profile cannot be deleted.")
 
 
 def health_log(store: Store, profile: dict) -> None:
@@ -1462,7 +1541,7 @@ def health_log(store: Store, profile: dict) -> None:
         filtered = [report for report in reports if len(dates) == 2 and dates[0] <= parse_time(report["created_at"]).date() <= dates[1] and (severity == "All" or report["severity"] == severity) and search.casefold() in report["symptoms"].get("description", "").casefold()]
         if filtered:
             rows = [{"Recorded (UTC)": parse_time(report["created_at"]).strftime("%d %b %Y %H:%M"), "Event / symptoms": report["symptoms"].get("description", ""), "Severity": report["severity"], "Heart rate": metric_value(report["vitals"], "hr"), "Blood pressure": metric_value(report["vitals"], "bp"), "Ground sync": "Delivered · simulator" if report["sync_status"] == "delivered_demo" else report["sync_status"]} for report in filtered]
-            st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch", row_height=56)
+            display_table(rows, row_height=56)
             saved_names = {item["id"]: f"{parse_time(item['created_at']):%d %b %H:%M} · {item['severity']} · {item['symptoms'].get('description', '')[:55]}" for item in filtered}
             selected_id = st.selectbox("Select a saved report", list(saved_names), format_func=lambda value, labels=saved_names: labels[value], key="log_selected")
             selected = next(report for report in filtered if report["id"] == selected_id)
@@ -1483,7 +1562,7 @@ def health_log(store: Store, profile: dict) -> None:
         activity = store.activity(crew_id)
         if activity:
             rows = [{"Recorded (UTC)": parse_time(item["timestamp"]).strftime("%d %b %Y %H:%M:%S"), "Action": item["action"], "Record": item["entity_id"] or "—", "Details": json.dumps(item["details"], ensure_ascii=False)} for item in activity]
-            st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
+            display_table(rows)
         else:
             st.info("Actions performed with this version will appear here. Existing medical reports are preserved.")
         st.caption("Data source: local SQLite file")
@@ -1520,7 +1599,7 @@ def ground_panel(store: Store, crew_id: str, report: dict | None = None) -> None
             st.button("Send summary to ground", key="ground_send", on_click=send_report, args=(store, report), type="primary")
         if transmissions:
             rows = [{"Report": item["report_id"][:8], "Queued (UTC)": parse_time(item["queued_at"]).strftime("%d %b %H:%M"), "Status": "Queued offline" if item["status"] == "queued" else "Delivered · simulator", "Received (UTC)": parse_time(item["delivered_at"]).strftime("%d %b %H:%M") if item["delivered_at"] else "—"} for item in transmissions[:8]]
-            st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
+            display_table(rows)
             acknowledgement = next((item["acknowledgement"] for item in transmissions if item["acknowledgement"]), None)
             if acknowledgement:
                 st.caption(acknowledgement)
