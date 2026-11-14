@@ -139,7 +139,7 @@ html, body, .stApp {background:var(--background);color:var(--text);font-family:v
 .brand-mark {display:grid;place-items:center;color:var(--accent);width:34px;height:34px;flex:none;}
 .brand-name {font-size:25px;line-height:1.15;letter-spacing:-1px;font-weight:650;color:var(--text);}
 .brand-subtitle {font-size:10px;line-height:1.4;color:var(--secondary);margin-top:4px;}
-.sidebar-heading {font-size:11px;font-weight:600;color:var(--secondary);padding:16px 10px 2px;}
+.sidebar-heading {font-size:11px;font-weight:600;color:var(--secondary);padding:16px 10px 10px;margin-bottom:8px;line-height:1.5;}
 [data-testid="stSidebar"] .stButton button {justify-content:flex-start;text-align:left;width:100%;min-height:36px;padding:7px 11px;border-radius:7px;border:0!important;gap:10px;box-shadow:none;font-size:13px;font-weight:450;}
 [data-testid="stSidebar"] .stButton button::before {content:"";width:18px;height:18px;flex:none;background:currentColor;mask-position:center;mask-repeat:no-repeat;mask-size:contain;-webkit-mask-position:center;-webkit-mask-repeat:no-repeat;-webkit-mask-size:contain;}
 [data-testid="stSidebar"] .stButton button > div {justify-content:flex-start;}
@@ -240,10 +240,8 @@ button[data-variant="segmented_control"] p {color:inherit!important;white-space:
 .deviation-banner.warning .summary-icon {background:var(--orange-soft);color:var(--orange);}
 .metrics-grid {display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;margin:16px 0 14px;}
 .metric-card {padding:18px 17px 15px;background:var(--surface);border-radius:12px;box-shadow:var(--shadow);position:relative;min-width:0;}
-.metric-card.selected {box-shadow:var(--shadow),inset 0 0 0 1.5px var(--accent);}
 .metric-title {display:flex;align-items:center;gap:5px;justify-content:space-between;color:var(--secondary);font-size:11px;font-weight:500;}
 .metric-symbol {color:var(--tertiary);height:20px;display:flex;align-items:center;}
-.metric-card.selected .metric-symbol {color:var(--accent);}
 .metric-value {font-size:clamp(22px,1.9vw,29px);font-weight:600;letter-spacing:-1.2px;color:var(--text);line-height:1.3;margin:16px 0 8px;white-space:nowrap;font-variant-numeric:tabular-nums;}
 .metric-value small {font-size:11px;font-weight:450;letter-spacing:0;color:var(--secondary);}
 .metric-baseline {font-size:10px;color:var(--tertiary);white-space:normal;}
@@ -251,7 +249,7 @@ button[data-variant="segmented_control"] p {color:inherit!important;white-space:
 .chart-heading {display:flex;align-items:center;gap:8px;}
 .chart-heading svg {color:var(--accent);}
 .chart-subtitle {font-size:11px;font-weight:400;color:var(--secondary);margin-top:4px;}
-.js-plotly-plot .plotly .modebar {background:transparent!important;}
+.js-plotly-plot .plotly .modebar {display:none!important;}
 .wellbeing-card {background:var(--surface);border-radius:12px;padding:20px 22px;box-shadow:var(--shadow);min-height:132px;}
 .wellbeing-heading {display:flex;align-items:center;gap:8px;font-size:11px;color:var(--secondary);font-weight:500;}
 .wellbeing-heading svg {color:var(--tertiary);}
@@ -307,8 +305,6 @@ button[data-variant="segmented_control"] p {color:inherit!important;white-space:
 .table-fallback td {min-width:85px;max-width:380px;overflow-wrap:anywhere;}
 .table-fallback tr:nth-child(even) td {background:var(--inset);}
 .table-fallback tr:last-child td {border-bottom:0;}
-.footer-note {color:var(--tertiary);font-size:10px;line-height:1.8;margin-top:18px;padding-top:16px;max-width:800px;}
-.footer-note strong {font-weight:550;color:var(--secondary);}
 .step {color:var(--accent);font-size:11px;}
 
 @media(min-width:1600px) {[data-testid="stMainBlockContainer"] {padding-left:56px;padding-right:56px;}.statusbar {margin-left:-56px;margin-right:-56px;padding-left:56px;padding-right:56px;}}
