@@ -1068,7 +1068,7 @@ def sidebar(store: Store, profiles: list[dict]) -> dict | None:
             st.caption("Create your own crew profile to begin.")
         st.button("New profile", key="new_profile", type="tertiary", width="stretch", on_click=request_new_profile)
         markup('<div class="sidebar-heading">Health</div>')
-        for page, label in (("Dashboard", "Overview"), ("Symptom Check", "Symptom Check"), ("Health Log", "Health Log"), ("Profile", "Profile")):
+        for page, label in (("Dashboard", "Overview"), ("Symptom Check", "Symptom Check"), ("Health Log", "Health Log"), ("Profile", "Profile"), ("Mental Health", "Mental Health")):
             st.button(label, key="nav_" + page.replace(" ", "_"), disabled=not ids, type="primary" if st.session_state["page"] == page else "tertiary", width="stretch", on_click=navigate, args=(page,))
         with st.container(key="sidebar_utilities"):
             if profile and profile.get("mission"):
@@ -1093,7 +1093,7 @@ def topbar(store: Store, profile: dict | None = None) -> None:
     day = mission_day(profile) if profile else None
     mission = f" · Mission day {day}" if day else ""
     context = escape(profile["name"]) + mission if profile else "Crew health"
-    page = "New profile" if profile is None or st.session_state.get("creating_profile") else {"Dashboard": "Overview", "Symptom Check": "Symptom Check", "Health Log": "Health Log", "Profile": "Profile", "Emergency": "Emergency"}.get(st.session_state["page"], "Overview")
+    page = "New profile" if profile is None or st.session_state.get("creating_profile") else {"Dashboard": "Overview", "Symptom Check": "Symptom Check", "Health Log": "Health Log", "Profile": "Profile", "Emergency": "Emergency", "Mental Health": "Mental Health"}.get(st.session_state["page"], "Overview")
     markup(f'<div class="statusbar"><div class="toolbar-leading"><strong class="toolbar-title">{page}</strong><span class="toolbar-divider"></span><span class="toolbar-context">{context}</span></div><div class="status-right"><span class="connection-state"><i class="dot" style="background:{color}"></i>{mode}</span><span class="toolbar-link">{icon("link", 17)}<span>Ground link: {link}</span></span></div></div>')
 
 
@@ -1226,6 +1226,17 @@ def measurement_entry(store: Store, profile: dict, *, expanded: bool = False) ->
                     notify("Measurements saved to SQLite.")
                     st.rerun()
             clear.form_submit_button("Clear fields", key="clear_measured_vitals", on_click=clear_measurement_fields, args=(crew_id,))
+        wellness = store.wellbeing(crew_id)
+        with st.form("activity_form_" + crew_id):
+            activity = st.number_input("Exercise today (min)", 0, 360, wellness["activity"], step=5, key="activity_" + crew_id)
+            if st.form_submit_button("Save activity", key="save_activity", type="primary"):
+                try:
+                    store.save_wellbeing(crew_id, wellness["stress"], wellness["mood"] or "", activity)
+                except ValueError as error:
+                    st.error(str(error))
+                else:
+                    notify("Your activity has been saved.")
+                    st.rerun()
 
 
 def mental_risk(checkin: dict | None, vitals: dict, baseline: dict) -> bool:
@@ -1234,7 +1245,7 @@ def mental_risk(checkin: dict | None, vitals: dict, baseline: dict) -> bool:
         or checkin["state_of_mind"] in ("Anxious", "Isolated")))
 
 
-def mental_checkin_view(store: Store, profile: dict, latest: dict | None, wellness: dict) -> None:
+def mental_checkin_view(store: Store, profile: dict, latest: dict | None) -> None:
     crew_id = profile["id"]
     with st.container(key="mental_checkin"):
         st.subheader("Mental Check-In")
@@ -1247,12 +1258,9 @@ def mental_checkin_view(store: Store, profile: dict, latest: dict | None, wellne
         state = st.segmented_control("State of Mind", MENTAL_STATES, key=state_key, required=True)
         reflection = st.text_input("Confidential reflection (optional)", value=latest["reflection"] if latest else "", max_chars=500, key="mental_note_" + crew_id)
         st.caption("Stored locally, without encryption. Your reflection is shared with the local ground receiver only if you queue a confidential psychological report.")
-        activity = st.number_input("Exercise today (min)", 0, 360, wellness["activity"], step=5, key="mental_activity_" + crew_id)
         if st.button("Save check-in", key="save_wellbeing", type="primary"):
             try:
                 store.save_mental_checkin(crew_id, stress, state, reflection)
-                if activity is not None:
-                    store.save_wellbeing(crew_id, wellness["stress"], wellness["mood"] or "", activity)
             except ValueError as error:
                 st.error(str(error))
             else:
@@ -1276,6 +1284,13 @@ def mental_checkin_view(store: Store, profile: dict, latest: dict | None, wellne
                     notify("Your support request has been queued." if store.setting("offline", True) else "Your support request was delivered to the local ground receiver.")
                     st.rerun()
                 cancel.button("Cancel", key="psych_cancel_" + crew_id, on_click=st.session_state.update, args=({"psych_panel_" + crew_id: False},))
+
+
+def mental_health_view(store: Store, profile: dict) -> None:
+    st.title("Mental Health")
+    st.caption("A moment for your state of mind, and a connection to your support team.")
+    checkins = store.mental_checkins(profile["id"])
+    mental_checkin_view(store, profile, checkins[0] if checkins else None)
 
 
 def dashboard(store: Store, profile: dict) -> None:
@@ -1329,7 +1344,6 @@ def dashboard(store: Store, profile: dict) -> None:
         with column:
             markup(f'<div class="wellbeing-card"><div class="wellbeing-heading">{icon(symbol, 17)}{escape(label)}</div><div class="wellbeing-value">{escape(value)}</div><div class="wellbeing-note">{escape(caption)}</div></div>')
     measurement_entry(store, profile, expanded=frame.empty)
-    mental_checkin_view(store, profile, mental, wellness)
     with st.expander("Crew overview"):
         rows = []
         for person in store.profiles():
@@ -1783,7 +1797,7 @@ def main() -> None:
             create_profile_view(store)
         else:
             page = st.session_state["page"]
-            views = {"Dashboard": dashboard, "Symptom Check": symptom_check, "Health Log": health_log, "Profile": profile_view, "Emergency": emergency_view}
+            views = {"Dashboard": dashboard, "Symptom Check": symptom_check, "Health Log": health_log, "Profile": profile_view, "Mental Health": mental_health_view, "Emergency": emergency_view}
             views.get(page, dashboard)(store, profile)
     except (sqlite3.Error, OSError) as error:
         st.error("Local storage is unavailable. Check that the SQLite file and its directory are writable and the database is not locked.")
