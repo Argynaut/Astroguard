@@ -12,6 +12,7 @@ Assessment uses explainable rules, not a remote LLM or a validated medical model
 from __future__ import annotations
 
 import copy
+import base64
 import html
 import json
 import math
@@ -35,6 +36,10 @@ from astera_design import ENGLISH_LOCALE, SYSTEM_FONT, icon, palette, stylesheet
 
 APP_NAME = "Astera"
 APP_DIRECTORY = Path(__file__).resolve().parent
+LOGO_PATH = APP_DIRECTORY / "astera_logo.png"
+MENTAL_STATES = ("Focused", "Balanced", "Fatigued", "Anxious", "Isolated")
+STRESS_LABELS = {1: "Calm", 2: "Low", 3: "Moderate", 4: "High", 5: "Critical"}
+PSYCH_REQUESTS = ("Schedule Flight Psychologist Session", "Request Private Family Uplink", "Queue Confidential Psychological Report")
 LEGACY_DB_PATH = APP_DIRECTORY / "astroguard_data" / "astroguard.sqlite3"
 DB_PATH = Path(os.environ["ASTROGUARD_DB"]) if os.environ.get("ASTROGUARD_DB") else (LEGACY_DB_PATH if LEGACY_DB_PATH.exists() else APP_DIRECTORY / "astroguard.db")
 SEVERITIES = ("Monitor", "Treat onboard", "Contact ground", "Emergency evacuation")
@@ -491,6 +496,8 @@ class Store:
                 "CREATE TABLE IF NOT EXISTS wellbeing (crew_id TEXT NOT NULL REFERENCES profiles(id),day TEXT NOT NULL,stress INTEGER,mood TEXT,activity INTEGER,PRIMARY KEY(crew_id,day))",
                 "CREATE TABLE IF NOT EXISTS symptom_drafts (crew_id TEXT PRIMARY KEY REFERENCES profiles(id),updated_at TEXT NOT NULL,payload TEXT NOT NULL)",
                 "CREATE TABLE IF NOT EXISTS activity_log (id INTEGER PRIMARY KEY AUTOINCREMENT,crew_id TEXT REFERENCES profiles(id),timestamp TEXT NOT NULL,action TEXT NOT NULL,entity_id TEXT,details TEXT NOT NULL)",
+                "CREATE TABLE IF NOT EXISTS mental_checkins (id TEXT PRIMARY KEY,crew_id TEXT NOT NULL REFERENCES profiles(id),created_at TEXT NOT NULL,stress INTEGER NOT NULL CHECK(stress BETWEEN 1 AND 5),state_of_mind TEXT NOT NULL,reflection TEXT NOT NULL DEFAULT '')",
+                "CREATE INDEX IF NOT EXISTS mental_checkins_crew_time ON mental_checkins(crew_id,created_at)",
             ]
             for statement in statements:
                 connection.execute(statement)
@@ -512,8 +519,8 @@ class Store:
             ):
                 connection.execute(statement)
             connection.execute("INSERT OR IGNORE INTO settings VALUES ('offline','true')")
-            connection.execute("INSERT INTO settings VALUES ('schema_version','2') ON CONFLICT(key) DO UPDATE SET value='2'")
-            connection.execute("PRAGMA user_version = 2")
+            connection.execute("INSERT INTO settings VALUES ('schema_version','3') ON CONFLICT(key) DO UPDATE SET value='3'")
+            connection.execute("PRAGMA user_version = 3")
 
     @staticmethod
     def _audit(connection: sqlite3.Connection, crew_id: str | None, action: str, entity_id: str | None = None, details: dict | None = None) -> None:
@@ -622,7 +629,7 @@ class Store:
                 (crew_id,),
             )
             # Delete children before their parents, including on existing databases.
-            for table in ("activity_log", "symptom_drafts", "wellbeing", "telemetry", "reports"):
+            for table in ("mental_checkins", "activity_log", "symptom_drafts", "wellbeing", "telemetry", "reports"):
                 connection.execute(f"DELETE FROM {table} WHERE crew_id = ?", (crew_id,))
             connection.execute("DELETE FROM profiles WHERE id = ?", (crew_id,))
 
@@ -750,6 +757,43 @@ class Store:
         with self.connection() as connection:
             row = connection.execute("SELECT * FROM wellbeing WHERE crew_id=? ORDER BY day DESC LIMIT 1", (crew_id,)).fetchone()
         return dict(row) if row else {"day": None, "stress": None, "mood": "", "activity": None}
+
+    def mental_checkins(self, crew_id: str) -> list[dict]:
+        with self.connection() as connection:
+            rows = connection.execute("SELECT * FROM mental_checkins WHERE crew_id=? ORDER BY created_at DESC,rowid DESC", (crew_id,)).fetchall()
+        return [dict(row) for row in rows]
+
+    def save_mental_checkin(self, crew_id: str, stress: int, state: str, reflection: str = "") -> dict:
+        if isinstance(stress, bool) or stress not in STRESS_LABELS or state not in MENTAL_STATES or len(reflection) > 500:
+            raise ValueError("Choose a stress level and state of mind. Reflections may contain up to 500 characters.")
+        entry = dict(id=str(uuid.uuid4()), crew_id=crew_id, created_at=iso_time(), stress=stress, state_of_mind=state, reflection=reflection.strip())
+        with self.connection() as connection:
+            connection.execute("INSERT INTO mental_checkins VALUES (?,?,?,?,?,?)", tuple(entry.values()))
+            self._audit(connection, crew_id, "mental_checkin_saved", entry["id"], {"stress": stress, "state_of_mind": state})
+        return entry
+
+    def queue_psych_request(self, crew_id: str, request: str) -> str:
+        if request not in PSYCH_REQUESTS:
+            raise ValueError("Choose a psychological support request.")
+        profile, vitals = self.profile(crew_id), self.latest_vitals(crew_id)
+        checkins = self.mental_checkins(crew_id)
+        mental = dict(checkins[0]) if checkins else None
+        if mental and request != PSYCH_REQUESTS[2]:
+            mental.pop("reflection", None)
+        report = assess(profile, vitals, {"description": request, "pain": None, "duration_hours": None, "red_flags": []})
+        report.update(kind="psych_uplink", severity=SEVERITIES[0], severity_index=0,
+                      psych_request=request, mental_checkin=mental,
+                      reasons=["Crew-requested psychological support; this is not an evacuation request."],
+                      recommendations=[request, "Await confirmation from the ground support team."], possible_causes=[])
+        if mental and mental.get("reflection"):
+            report["symptoms"]["description"] += "\nConfidential reflection: " + mental["reflection"]
+        with self.connection() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            self._insert_report(connection, report, saved=True)
+            connection.execute("INSERT INTO transmissions (id,report_id,queued_at,payload) VALUES (?,?,?,?)", (str(uuid.uuid4()), report["id"], iso_time(), json_text(report)))
+            self._audit(connection, crew_id, "ground_psych_uplink_queued", report["id"], {"request": request})
+        self.sync_queue()
+        return report["id"]
 
     def save_wellbeing(self, crew_id: str, stress: int | None, mood: str, activity: int | None) -> None:
         if stress is not None and not 0 <= stress <= 10 or mood not in ("", "Good", "Neutral", "Low") or activity is not None and not 0 <= activity <= 360:
@@ -1005,7 +1049,8 @@ def select_crew(store: Store) -> None:
 
 def sidebar(store: Store, profiles: list[dict]) -> dict | None:
     with st.sidebar:
-        markup(f'<div class="brand"><span class="brand-mark">{icon("astera", 34)}</span><div><div class="brand-name">Astera</div><div class="brand-subtitle">Crew medical console</div></div></div>')
+        logo = base64.b64encode(LOGO_PATH.read_bytes()).decode("ascii")
+        markup(f'<div class="brand"><img class="brand-logo" src="data:image/png;base64,{logo}" alt="Astera orbital A"><div><div class="brand-name">Astera</div><div class="brand-subtitle">Crew medical console</div></div></div>')
         ids = [profile["id"] for profile in profiles]
         profile = None
         pending = st.session_state.pop("pending_crew_selection", None)
@@ -1183,6 +1228,56 @@ def measurement_entry(store: Store, profile: dict, *, expanded: bool = False) ->
             clear.form_submit_button("Clear fields", key="clear_measured_vitals", on_click=clear_measurement_fields, args=(crew_id,))
 
 
+def mental_risk(checkin: dict | None, vitals: dict, baseline: dict) -> bool:
+    return bool(checkin and checkin["stress"] >= 4 and (
+        (known(vitals.get("sleep")) and known(baseline.get("sleep")) and vitals["sleep"] < baseline["sleep"])
+        or checkin["state_of_mind"] in ("Anxious", "Isolated")))
+
+
+def mental_checkin_view(store: Store, profile: dict, latest: dict | None, wellness: dict) -> None:
+    crew_id = profile["id"]
+    with st.container(key="mental_checkin"):
+        st.subheader("Mental Check-In")
+        st.caption("Take a moment to notice how you feel.")
+        # Stable per-crew widget keys retain values across saves and navigation.
+        stress_key, state_key = "mental_stress_" + crew_id, "mental_state_" + crew_id
+        st.session_state.setdefault(stress_key, latest["stress"] if latest else None)
+        st.session_state.setdefault(state_key, latest["state_of_mind"] if latest else None)
+        stress = st.segmented_control("Stress Level", list(STRESS_LABELS), format_func=lambda n: f"{n} · {STRESS_LABELS[n]}", key=stress_key, required=True)
+        state = st.segmented_control("State of Mind", MENTAL_STATES, key=state_key, required=True)
+        reflection = st.text_input("Confidential reflection (optional)", value=latest["reflection"] if latest else "", max_chars=500, key="mental_note_" + crew_id)
+        st.caption("Stored locally, without encryption. Your reflection is shared with the local ground receiver only if you queue a confidential psychological report.")
+        activity = st.number_input("Exercise today (min)", 0, 360, wellness["activity"], step=5, key="mental_activity_" + crew_id)
+        if st.button("Save check-in", key="save_wellbeing", type="primary"):
+            try:
+                store.save_mental_checkin(crew_id, stress, state, reflection)
+                if activity is not None:
+                    store.save_wellbeing(crew_id, wellness["stress"], wellness["mood"] or "", activity)
+            except ValueError as error:
+                st.error(str(error))
+            else:
+                notify("Your mental check-in has been saved.")
+                st.rerun()
+        elevated = stress is not None and stress >= 4
+        with st.container(key="psych_uplink_attention" if elevated else "psych_uplink_action"):
+            if elevated:
+                st.caption("Support is available. Consider checking in with your ground team.")
+            st.button("Ground Psych Uplink", key="psych_open_" + crew_id, type="primary" if elevated else "secondary", on_click=st.session_state.update, args=({"psych_panel_" + crew_id: True},))
+        if st.session_state.get("psych_panel_" + crew_id):
+            with st.container(key="psych_uplink_panel"):
+                st.markdown("**Ground Psych Uplink**")
+                request = st.selectbox("Choose support", PSYCH_REQUESTS, key="psych_request_" + crew_id)
+                st.caption("Requests use your latest saved check-in. Save any changes before queuing a confidential report.")
+                st.caption("Requests use the existing ground link. Offline requests wait until the link is restored. This prototype does not contact a real psychologist or family member.")
+                submit, cancel = st.columns(2)
+                if submit.button("Queue request", type="primary", key="psych_submit_" + crew_id):
+                    store.queue_psych_request(crew_id, request)
+                    st.session_state["psych_panel_" + crew_id] = False
+                    notify("Your support request has been queued." if store.setting("offline", True) else "Your support request was delivered to the local ground receiver.")
+                    st.rerun()
+                cancel.button("Cancel", key="psych_cancel_" + crew_id, on_click=st.session_state.update, args=({"psych_panel_" + crew_id: False},))
+
+
 def dashboard(store: Store, profile: dict) -> None:
     crew_id, baseline = profile["id"], profile["baseline"]
     title, action = st.columns([3, 1])
@@ -1192,6 +1287,8 @@ def dashboard(store: Store, profile: dict) -> None:
     with action:
         st.button("Check symptoms", key="check_symptoms", type="primary", width="stretch", shortcut="Ctrl+K", on_click=navigate, args=("Symptom Check",))
     vitals, frame = store.latest_vitals(crew_id), store.telemetry(crew_id)
+    checkins = store.mental_checkins(crew_id)
+    mental = checkins[0] if checkins else None
     with st.container():
         changed = deviations(vitals, baseline)
         compared = sum(comparable(vitals, baseline, metric) for metric in METRICS)
@@ -1202,7 +1299,8 @@ def dashboard(store: Store, profile: dict) -> None:
         else:
             summary = "Enter your baseline and current readings to compare your health metrics"
         state_icon = "emergency" if changed else ("check" if compared else "shield")
-        markup(f'<div class="deviation-banner {"warning" if changed else ""}"><span class="summary-icon">{icon(state_icon, 18)}</span><div><div class="small-label">Deviations from personal baseline</div><strong>{escape(summary)}</strong></div></div>')
+        advisory = '<div class="mental-advisory">Elevated Burnout &amp; Isolation Risk: High stress paired with reduced recovery detected.</div>' if mental_risk(mental, vitals, baseline) else ""
+        markup(f'<div class="deviation-banner {"warning" if changed else ""}"><span class="summary-icon">{icon(state_icon, 18)}</span><div><div class="small-label">Deviations from personal baseline</div><strong>{escape(summary)}</strong>{advisory}</div></div>')
         metric_cards(vitals, baseline)
         with st.expander("Review deviations"):
             for metric in changed:
@@ -1223,26 +1321,15 @@ def dashboard(store: Store, profile: dict) -> None:
         st.plotly_chart(make_chart(frame, baseline, metric, period, projection), width="stretch", theme=None, config={"displaylogo": False, "displayModeBar": False, "staticPlot": True, "scrollZoom": False}, key="vitals_plot")
         st.caption("Only recorded measurements are plotted. A baseline band appears only when you have entered that personal reference value.")
     wellness, sleep_avg = store.wellbeing(crew_id), sleep_average_3d(frame)
+    stress_value = f'{mental["stress"]}/5' if mental else display_number(wellness["stress"], 0, "/10")
+    stress_note = "State of mind: " + mental["state_of_mind"] if mental else "Previous mood: " + (wellness["mood"] or "—")
     columns = st.columns(3)
-    cards = [("Sleep · recent nights", display_number(sleep_avg, 1, " h"), "Personal target: " + metric_value(baseline, "sleep")), ("Stress · self-report", display_number(wellness["stress"], 0, "/10"), "Mood: " + (wellness["mood"] or "—")), ("Activity", display_number(wellness["activity"], 0, " min"), "Recorded date: " + (wellness["day"] or "—"))]
+    cards = [("Sleep · recent nights", display_number(sleep_avg, 1, " h"), "Personal target: " + metric_value(baseline, "sleep")), ("Stress · self-report", stress_value, stress_note), ("Activity", display_number(wellness["activity"], 0, " min"), "Recorded date: " + (wellness["day"] or "—"))]
     for column, (label, value, caption), symbol in zip(columns, cards, ("sleep", "stress", "activity")):
         with column:
             markup(f'<div class="wellbeing-card"><div class="wellbeing-heading">{icon(symbol, 17)}{escape(label)}</div><div class="wellbeing-value">{escape(value)}</div><div class="wellbeing-note">{escape(caption)}</div></div>')
     measurement_entry(store, profile, expanded=frame.empty)
-    with st.expander("Daily wellbeing & activity check-in"):
-        with st.form("wellbeing_form_" + crew_id):
-            a, b, c = st.columns(3)
-            stress = a.number_input("Stress level", 0, 10, wellness["stress"], key="wellbeing_stress_" + crew_id)
-            mood = b.selectbox("Mood", ["", "Good", "Neutral", "Low"], index=["", "Good", "Neutral", "Low"].index(wellness["mood"] or ""), format_func=lambda value: value or "Not entered")
-            activity = c.number_input("Exercise today (min)", 0, 360, wellness["activity"], step=5)
-            if st.form_submit_button("Save check-in", key="save_wellbeing", type="primary"):
-                try:
-                    store.save_wellbeing(crew_id, stress, mood, activity)
-                except ValueError as error:
-                    st.error(str(error))
-                else:
-                    notify("Wellbeing check-in saved in SQLite.")
-                    st.rerun()
+    mental_checkin_view(store, profile, mental, wellness)
     with st.expander("Crew overview"):
         rows = []
         for person in store.profiles():
@@ -1450,7 +1537,7 @@ def profile_view(store: Store, profile: dict) -> None:
 def health_log(store: Store, profile: dict) -> None:
     st.title("Health log")
     st.caption("Saved reports, persistent symptom drafts and the SQLite activity trail.")
-    report_tab, action_tab = st.tabs(["Health reports", "Activity log"])
+    report_tab, mental_tab, action_tab = st.tabs(["Health reports", "Mental check-ins", "Activity log"])
     crew_id = profile["id"]
     with report_tab:
         reports = store.reports(crew_id)
@@ -1489,9 +1576,15 @@ def health_log(store: Store, profile: dict) -> None:
                 buttons[2].button("Send selected to ground", key="send_saved", width="stretch", on_click=send_report, args=(store, selected))
             else:
                 markup(f'<div class="empty-state"><span class="empty-state-icon">{icon("log", 26)}</span><strong>No matching reports</strong><p>No saved reports match these filters. Assess your symptoms and choose Save to health log.</p></div>')
-        archive = {"application": APP_NAME, "schema_version": 2, "exported_at": iso_time(), "profile": profile, "symptom_draft": store.draft(crew_id), "reports": store.reports(crew_id, saved_only=False), "telemetry": json.loads(store.telemetry(crew_id).to_json(orient="records", date_format="iso")), "activity_log": store.activity(crew_id)}
+        archive = {"application": APP_NAME, "schema_version": 3, "mental_checkins": store.mental_checkins(crew_id), "exported_at": iso_time(), "profile": profile, "symptom_draft": store.draft(crew_id), "reports": store.reports(crew_id, saved_only=False), "telemetry": json.loads(store.telemetry(crew_id).to_json(orient="records", date_format="iso")), "activity_log": store.activity(crew_id)}
         st.download_button("Export full medical archive (.json)", json_text(archive), file_name=f"astroguard_{crew_id}_archive.json", mime="application/json", key="export_archive")
         st.caption(f"{len(filtered)} displayed · {len(reports)} saved. The archive also includes persistent drafts, measurements and the action log.")
+    with mental_tab:
+        entries = store.mental_checkins(crew_id)
+        if entries:
+            display_table([{"Recorded (UTC)": parse_time(e["created_at"]).strftime("%d %b %Y %H:%M"), "Stress (1-5)": e["stress"], "State of mind": e["state_of_mind"], "Confidential reflection": e["reflection"]} for e in entries])
+        else:
+            st.caption("Your mental check-ins will appear here.")
     with action_tab:
         activity = store.activity(crew_id)
         with st.container(key="activity_records"):
@@ -1533,7 +1626,7 @@ def ground_panel(store: Store, crew_id: str, report: dict | None = None) -> None
         if report:
             st.button("Send summary to ground", key="ground_send", on_click=send_report, args=(store, report), type="primary")
         if transmissions:
-            rows = [{"Report": item["report_id"][:8], "Queued (UTC)": parse_time(item["queued_at"]).strftime("%d %b %H:%M"), "Status": "Queued offline" if item["status"] == "queued" else "Delivered · simulator", "Received (UTC)": parse_time(item["delivered_at"]).strftime("%d %b %H:%M") if item["delivered_at"] else "—"} for item in transmissions[:8]]
+            rows = [{"Report": item["report_id"][:8], "Request": json.loads(item["payload"]).get("psych_request", "Medical summary"), "Queued (UTC)": parse_time(item["queued_at"]).strftime("%d %b %H:%M"), "Status": "Queued offline" if item["status"] == "queued" else "Delivered · simulator", "Received (UTC)": parse_time(item["delivered_at"]).strftime("%d %b %H:%M") if item["delivered_at"] else "—"} for item in transmissions[:8]]
             display_table(rows)
             acknowledgement = next((item["acknowledgement"] for item in transmissions if item["acknowledgement"]), None)
             if acknowledgement:
@@ -1543,6 +1636,22 @@ def ground_panel(store: Store, crew_id: str, report: dict | None = None) -> None
 
 
 def assessment_view(store: Store, report: dict) -> None:
+    if report.get("kind") == "psych_uplink":
+        st.title("Psychological support request")
+        with st.container(key="psych_uplink_panel"):
+            st.markdown("**" + report["psych_request"] + "**")
+            st.caption(f"Requested {parse_time(report['created_at']):%d %b %Y %H:%M UTC}")
+            mental = report.get("mental_checkin")
+            if mental:
+                st.write(f"Stress: {mental['stress']}/5 · State of mind: {mental['state_of_mind']}")
+                if mental.get("reflection"):
+                    st.text(mental["reflection"])
+            st.caption("This is a support request, not a diagnosis or evacuation assessment.")
+            st.button("Send summary to ground", key="psych_report_send", on_click=send_report, args=(store, report))
+            st.download_button("Download request", json_text(report), file_name="astera_psych_request.json", mime="application/json")
+        ground_panel(store, report["crew_id"])
+        st.button("Back to health log", on_click=navigate, args=("Health Log",))
+        return
     crew_id = report["crew_id"]
     left, right = st.columns([3, 1])
     with left:
@@ -1651,7 +1760,7 @@ def emergency_view(store: Store, profile: dict) -> None:
 
 
 def main() -> None:
-    st.set_page_config(page_title="Astera · Crew Health", page_icon="✦", layout="wide", initial_sidebar_state="expanded")
+    st.set_page_config(page_title="Astera · Crew Health", page_icon=str(LOGO_PATH), layout="wide", initial_sidebar_state="expanded")
     st.session_state.setdefault("page", "Dashboard")
     store = Store()
     try:
