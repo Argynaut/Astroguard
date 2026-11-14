@@ -30,7 +30,7 @@ PALETTES = {
         "scheme": "light", "background": "#f5f5f7", "surface": "#ffffff",
         "inset": "#f8f8fa", "field": "#fbfbfc", "sidebar": "rgba(234,235,239,.88)",
         "toolbar": "rgba(245,245,247,.88)", "text": "#1d1d1f", "secondary": "#6e6e73",
-        "tertiary": "#7c7c82", "accent": "#007aff", "accent_soft": "#e8f1ff",
+        "tertiary": "#7c7c82", "accent": "#162B5C", "accent_hover": "#1E3A8A", "accent_soft": "#e8f1ff",
         "line": "#e5e5e9", "grid": "#eeeeF1", "control_border": "#d8d8dd",
         "green": "#248a3d", "green_soft": "#edf7ef", "orange": "#a96000",
         "orange_soft": "#fff5e5", "red": "#d12432", "red_soft": "#fff0f1",
@@ -42,7 +42,7 @@ PALETTES = {
         "scheme": "dark", "background": "#1c1c1e", "surface": "#2c2c2e",
         "inset": "#252527", "field": "#353537", "sidebar": "rgba(36,36,39,.92)",
         "toolbar": "rgba(28,28,30,.88)", "text": "#f5f5f7", "secondary": "#aeaeb2",
-        "tertiary": "#98989f", "accent": "#0a84ff", "accent_soft": "#163451",
+        "tertiary": "#98989f", "accent": "#3B66B8", "accent_hover": "#4F7CD1", "accent_soft": "#163451",
         "line": "#3a3a3d", "grid": "#3a3a3d", "control_border": "#4a4a4e",
         "green": "#63d37b", "green_soft": "#22392a", "orange": "#ffb340",
         "orange_soft": "#3d3222", "red": "#ff7b83", "red_soft": "#40282c",
@@ -91,7 +91,7 @@ def stylesheet(appearance: str = "Light") -> str:
     colors = palette(appearance)
     variables = ";".join(f"--{key.replace('_', '-')}:{value}" for key, value in colors.items())
     nav_icons = {"nav_Dashboard": "overview", "nav_Symptom_Check": "symptoms", "nav_Health_Log": "log",
-                 "nav_Profile": "profile", "new_profile": "plus", "emergency_shortcut": "emergency"}
+                 "nav_Profile": "profile", "nav_Mental_Health": "stress", "new_profile": "plus", "emergency_shortcut": "emergency"}
     masks = []
     for key, name in nav_icons.items():
         uri = "data:image/svg+xml," + quote(icon(name))
@@ -135,7 +135,7 @@ html, body, .stApp {background:var(--background);color:var(--text);font-family:v
 [data-testid="stSidebarUserContent"] > div > [data-testid="stVerticalBlock"] {gap:6px;min-height:calc(100dvh - 48px);}
 [data-testid="stSidebarCollapseButton"] button {color:var(--tertiary);}
 [data-testid="stSidebar"] [data-testid="stWidgetLabel"] p {font-size:11px;color:var(--secondary);font-weight:500;}
-.brand {display:flex;align-items:center;gap:11px;margin:5px 7px 24px;}
+.brand {display:flex;flex-direction:column;align-items:flex-start;gap:8px;margin:5px 7px 24px;min-width:0;max-width:100%;}.brand > div {min-width:0;max-width:100%;}.brand-name,.brand-subtitle {overflow-wrap:anywhere;}
 .brand-mark {display:grid;place-items:center;color:var(--accent);width:34px;height:34px;flex:none;}
 .brand-name {font-size:25px;line-height:1.15;letter-spacing:-1px;font-weight:650;color:var(--text);}
 .brand-subtitle {font-size:10px;line-height:1.4;color:var(--secondary);margin-top:4px;}
@@ -145,7 +145,7 @@ html, body, .stApp {background:var(--background);color:var(--text);font-family:v
 [data-testid="stSidebar"] .stButton button > div {justify-content:flex-start;}
 [data-testid="stSidebar"] .stButton button[kind="tertiary"] {background:transparent;color:var(--secondary);}
 [data-testid="stSidebar"] .stButton button[kind="tertiary"]:hover {background:var(--selection);color:var(--text);}
-[data-testid="stSidebar"] .stButton button[kind="primary"] {background:var(--accent)!important;color:#fff!important;box-shadow:0 1px 3px #007aff18;}
+[data-testid="stSidebar"] .stButton button[kind="primary"] {background:var(--accent)!important;color:#fff!important;box-shadow:0 1px 3px #162b5c18;}
 [data-testid="stSidebar"] .stButton button[kind="primary"] p {color:#fff!important;font-weight:550;}
 .st-key-new_profile button {min-height:29px!important;font-size:12px!important;color:var(--secondary)!important;}
 [data-testid="stSidebarUserContent"] [data-testid="stLayoutWrapper"]:has(> .st-key-sidebar_utilities) {margin-top:auto;}
@@ -161,6 +161,7 @@ html, body, .stApp {background:var(--background);color:var(--text);font-family:v
 .st-key-appearance [data-testid="stWidgetLabel"] p {font-size:11px;}
 .st-key-appearance button {font-size:11px!important;min-height:27px!important;}
 
+[data-testid="stSidebar"] .stButton button[kind="primary"]:hover {background:var(--accent-hover)!important;}
 /* A compact system type scale, with quiet metadata. */
 h1,h2,h3,h4,h5,h6 {font-family:var(--system-font)!important;color:var(--text);}
 h1 {font-size:30px!important;font-weight:650!important;letter-spacing:-1.05px;line-height:1.2!important;padding:0 0 6px!important;}
@@ -195,7 +196,7 @@ button[kind="secondary"],button[kind="tertiary"],button[kind="primary"],button[k
 button[kind="secondary"],button[kind="secondaryFormSubmit"] {background:var(--surface);color:var(--text);border:1px solid var(--control-border);box-shadow:var(--control-shadow);}
 button[kind="secondary"]:hover,button[kind="secondaryFormSubmit"]:hover {background:var(--inset);color:var(--text);border-color:var(--control-border);}
 button[kind="primary"],button[kind="primaryFormSubmit"] {background:var(--accent)!important;color:#fff!important;border:1px solid transparent!important;box-shadow:var(--control-shadow);}
-button[kind="primary"]:hover,button[kind="primaryFormSubmit"]:hover {filter:brightness(1.05);}
+button[kind="primary"]:hover,button[kind="primaryFormSubmit"]:hover {background:var(--accent-hover)!important;filter:none;}
 button[kind="primary"] p,button[kind="primaryFormSubmit"] p {color:#fff!important;}
 button p {font-size:12px!important;line-height:1.4!important;color:inherit;}
 button[kind="tertiary"] {background:transparent;border-color:transparent;color:var(--secondary);}
@@ -203,7 +204,8 @@ button:focus-visible,summary:focus-visible,[role="tab"]:focus-visible {outline:3
 button:disabled {opacity:.42;cursor:default;filter:none!important;}
 [data-testid="stButtonGroup"] [role="radiogroup"], [data-testid="stButtonGroup"] [role="group"] {display:inline-flex;gap:2px;background:var(--line);padding:3px;border-radius:8px;}
 button[data-variant="segmented_control"] {border:0!important;border-radius:5px!important;background:transparent!important;color:var(--secondary)!important;min-height:28px;padding:4px 11px;font-size:12px;box-shadow:none;}
-button[data-variant="segmented_control"][aria-checked="true"] {background:var(--surface)!important;color:var(--text)!important;box-shadow:0 1px 4px #00000015;}
+button[data-variant="segmented_control"][aria-checked="true"] {background:var(--accent)!important;color:#fff!important;box-shadow:0 1px 4px #00000015;}
+button[data-variant="segmented_control"][aria-checked="true"]:hover {background:var(--accent-hover)!important;}
 button[data-variant="segmented_control"] p {color:inherit!important;white-space:nowrap;}
 [data-testid="stCheckbox"] label p {font-size:12px;color:var(--secondary);}
 [data-testid="stCheckbox"] input {accent-color:var(--accent);}
@@ -232,6 +234,11 @@ button[data-variant="segmented_control"] p {color:inherit!important;white-space:
 .st-key-delete_profile button,.st-key-confirm_profile_deletion button,.st-key-clear_baseline button {color:var(--red);}
 .st-key-confirm_profile_deletion button {background:var(--red)!important;color:#fff;}
 
+.brand-logo {display:block;width:64px!important;height:auto!important;max-width:100%;object-fit:contain;flex:none;}
+.st-key-mental_checkin {background:var(--surface);border-radius:13px;padding:22px 24px;box-shadow:var(--shadow);}
+.st-key-psych_uplink_panel {background:var(--inset);border-radius:10px;padding:18px;}
+.st-key-psych_uplink_attention {border-left:3px solid var(--orange);padding-left:14px;}
+.mental-advisory {color:var(--orange);background:var(--orange-soft);border-radius:8px;padding:10px 12px;margin-top:12px;font-size:12px;line-height:1.6;}
 /* Health overview */
 .deviation-banner {display:flex;align-items:center;gap:13px;padding:16px 20px;background:var(--surface);border-radius:12px;box-shadow:var(--shadow);}
 .summary-icon {width:32px;height:32px;border-radius:50%;display:grid;place-items:center;flex:none;background:var(--accent-soft);color:var(--accent);}
