@@ -1,3 +1,4 @@
 streamlit>=1.66,<2
 pandas>=2.2,<3
 plotly>=6,<7
+google-genai>=1,<3
