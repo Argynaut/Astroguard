@@ -27,7 +27,7 @@ ENGLISH_LOCALE = """<script>
 
 PALETTES = {
     "Light": {
-        "scheme": "light", "background": "#f5f5f7", "surface": "#ffffff",
+        "scheme": "light", "logo_filter": "none", "background": "#f5f5f7", "surface": "#ffffff",
         "inset": "#f8f8fa", "field": "#fbfbfc", "sidebar": "rgba(234,235,239,.88)",
         "toolbar": "rgba(245,245,247,.88)", "text": "#1d1d1f", "secondary": "#6e6e73",
         "tertiary": "#7c7c82", "accent": "#162B5C", "accent_hover": "#1E3A8A", "accent_soft": "#e8f1ff",
@@ -39,7 +39,7 @@ PALETTES = {
         "control_shadow": "0 1px 2px rgba(0,0,0,.07)",
     },
     "Dark": {
-        "scheme": "dark", "background": "#1c1c1e", "surface": "#2c2c2e",
+        "scheme": "dark", "logo_filter": "drop-shadow(0 0 2px rgba(235,242,255,.65)) drop-shadow(0 0 6px rgba(220,232,255,.25))", "background": "#1c1c1e", "surface": "#2c2c2e",
         "inset": "#252527", "field": "#353537", "sidebar": "rgba(36,36,39,.92)",
         "toolbar": "rgba(28,28,30,.88)", "text": "#f5f5f7", "secondary": "#aeaeb2",
         "tertiary": "#98989f", "accent": "#3B66B8", "accent_hover": "#4F7CD1", "accent_soft": "#163451",
@@ -135,7 +135,7 @@ html, body, .stApp {background:var(--background);color:var(--text);font-family:v
 [data-testid="stSidebarUserContent"] > div > [data-testid="stVerticalBlock"] {gap:6px;min-height:calc(100dvh - 48px);}
 [data-testid="stSidebarCollapseButton"] button {color:var(--tertiary);}
 [data-testid="stSidebar"] [data-testid="stWidgetLabel"] p {font-size:11px;color:var(--secondary);font-weight:500;}
-.brand {display:flex;flex-direction:column;align-items:flex-start;gap:8px;margin:5px 7px 24px;min-width:0;max-width:100%;}.brand > div {min-width:0;max-width:100%;}.brand-name,.brand-subtitle {overflow-wrap:anywhere;}
+.brand {display:flex;flex-direction:column;align-items:center;text-align:center;gap:8px;margin:5px 7px 24px;min-width:0;max-width:100%;}.brand > div {min-width:0;max-width:100%;}.brand-name,.brand-subtitle {overflow-wrap:anywhere;}
 .brand-mark {display:grid;place-items:center;color:var(--accent);width:34px;height:34px;flex:none;}
 .brand-name {font-size:25px;line-height:1.15;letter-spacing:-1px;font-weight:650;color:var(--text);}
 .brand-subtitle {font-size:10px;line-height:1.4;color:var(--secondary);margin-top:4px;}
@@ -235,6 +235,20 @@ button[data-variant="segmented_control"] p {color:inherit!important;white-space:
 .st-key-confirm_profile_deletion button {background:var(--red)!important;color:#fff;}
 
 .brand-logo {display:block;width:64px!important;height:auto!important;max-width:100%;object-fit:contain;flex:none;}
+.brand-logo {filter:var(--logo-filter,none);}
+.st-key-crew_counselor,.st-key-recent_checkins {background:var(--surface);border-radius:13px;padding:22px 24px;box-shadow:var(--shadow);}
+.counselor-status {display:inline-block;background:var(--inset);color:var(--secondary);border-radius:20px;padding:5px 10px;font-size:11px;font-weight:500;}
+.recent-checkin {padding:14px 0;border-bottom:1px solid var(--line);}
+.recent-checkin:last-child {border:0;}
+.recent-checkin-heading {display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:7px;}
+.recent-checkin time {font-size:11px;color:var(--secondary);}
+.recent-checkin strong {font-size:13px;font-weight:550;}
+.recent-checkin p {font-size:12px;color:var(--secondary);margin:5px 0 0;overflow-wrap:anywhere;}
+.stress-badge {background:var(--inset);color:var(--secondary);border-radius:6px;padding:3px 8px;font-size:10px;white-space:nowrap;}
+.stress-badge.elevated {background:var(--orange-soft);color:var(--orange);}
+.st-key-crew_counselor [data-testid="stChatMessage"] {background:var(--inset);border-radius:10px;}
+.st-key-crew_counselor [data-testid="stChatInput"] {border-color:var(--control-border);background:var(--field);border-radius:10px;}
+.st-key-crew_counselor .stButton button[kind="secondary"] {border-radius:20px;}
 .st-key-mental_checkin {background:var(--surface);border-radius:13px;padding:22px 24px;box-shadow:var(--shadow);}
 .st-key-psych_uplink_panel {background:var(--inset);border-radius:10px;padding:18px;}
 .st-key-psych_uplink_attention {border-left:3px solid var(--orange);padding-left:14px;}
