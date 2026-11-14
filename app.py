@@ -1,4 +1,4 @@
-"""AstroGuard AI - a self-contained, offline-first NASA Space Apps MVP.
+"""Astera - a self-contained, offline-first NASA Space Apps MVP.
 
 Python 3.10+. Install: pip install "streamlit>=1.66,<2" "pandas>=2.2,<3" "plotly>=6,<7"
 Run: streamlit run app.py
@@ -30,13 +30,14 @@ import plotly.graph_objects as go
 import streamlit as st
 from streamlit import config as streamlit_config
 
+from astera_design import ENGLISH_LOCALE, SYSTEM_FONT, icon, palette, stylesheet
 
-APP_NAME = "AstroGuard AI"
+
+APP_NAME = "Astera"
 APP_DIRECTORY = Path(__file__).resolve().parent
 LEGACY_DB_PATH = APP_DIRECTORY / "astroguard_data" / "astroguard.sqlite3"
 DB_PATH = Path(os.environ["ASTROGUARD_DB"]) if os.environ.get("ASTROGUARD_DB") else (LEGACY_DB_PATH if LEGACY_DB_PATH.exists() else APP_DIRECTORY / "astroguard.db")
 SEVERITIES = ("Monitor", "Treat onboard", "Contact ground", "Emergency evacuation")
-SEVERITY_COLORS = ("#38bdf8", "#34d399", "#f59e0b", "#fb7185")
 METRICS = {
     "hr": {"label": "Heart rate", "unit": "bpm", "precision": 0, "symbol": "♡"},
     "bp": {"label": "Blood pressure", "unit": "mmHg", "symbol": "↗"},
@@ -96,7 +97,7 @@ VALUE_LIMITS = {"hr": (20.0, 240.0), "sys": (60.0, 240.0), "dia": (30.0, 160.0),
 VALUE_TOLERANCES = {"hr": 10, "sys": 15, "dia": 10, "temp": 0.6, "spo2": 2, "sleep": 1.5}
 BLOOD_TYPES = ["", "A Rh+", "A Rh-", "B Rh+", "B Rh-", "AB Rh+", "AB Rh-", "O Rh+", "O Rh-", "Unknown"]
 BASELINE_TITLE = "Personal Medical Baseline (Reference Values)"
-BASELINE_DESCRIPTION = "Эти значения являются персональной базовой нормой астронавта, с которой ИИ сравнивает текущие симптомы и замеры."
+BASELINE_DESCRIPTION = "These are your personal reference values. The assessment compares your current symptoms and measurements with this baseline."
 
 
 def empty_values() -> dict:
@@ -824,21 +825,22 @@ def sleep_average_3d(frame: pd.DataFrame) -> float | None:
 
 
 def make_chart(frame: pd.DataFrame, baseline: dict, metric: str, period: str, projection: bool = False) -> go.Figure:
+    colors = palette(st.session_state.get("appearance", "Light"))
     figure = go.Figure()
     if not frame.empty:
         end = frame["timestamp"].max().to_pydatetime()
         data = frame[frame["timestamp"] >= end - timedelta(hours={"24h": 24, "3d": 72, "7d": 168}[period])]
-        series = [("sys", "Systolic", "#2dd4bf"), ("dia", "Diastolic", "#60a5fa")] if metric == "bp" else [(metric, METRICS[metric]["label"], "#2dd4bf")]
+        series = [("sys", "Systolic", colors["accent"]), ("dia", "Diastolic", colors["chart_secondary"])] if metric == "bp" else [(metric, METRICS[metric]["label"], colors["accent"])]
         for key, label, color in series:
             values = data.dropna(subset=[key])
             if values.empty:
                 continue
             limits = baseline_range(baseline, key)
             if limits:
-                figure.add_hrect(y0=limits[0], y1=limits[1], fillcolor=color, opacity=0.055, line_width=0)
-                figure.add_hline(y=baseline[key], line_dash="dot", line_color=color, opacity=0.5)
-            figure.add_trace(go.Scatter(x=values["timestamp"], y=values[key], name=label, mode="lines+markers", marker={"size": 3}, line={"color": color, "width": 2.6}, hovertemplate="%{x|%d %b %H:%M UTC}<br>%{y:.1f}<extra>" + label + "</extra>"))
-            figure.add_trace(go.Scatter(x=[values["timestamp"].iloc[-1]], y=[values[key].iloc[-1]], name="Latest " + label, mode="markers", marker={"color": "#f59e0b", "size": 9, "line": {"color": "#0c121e", "width": 2}}, showlegend=False))
+                figure.add_hrect(y0=limits[0], y1=limits[1], fillcolor=color, opacity=0.045, line_width=0)
+                figure.add_hline(y=baseline[key], line_dash="dot", line_color=colors["chart_secondary"], opacity=0.45)
+            figure.add_trace(go.Scatter(x=values["timestamp"], y=values[key], name=label, mode="lines", line={"color": color, "width": 2.5, "shape": "spline", "smoothing": 0.55}, hovertemplate="%{x|%d %b · %H:%M UTC}<br><b>%{y:.1f}</b> " + METRICS[metric]["unit"] + "<extra>" + label + "</extra>"))
+            figure.add_trace(go.Scatter(x=[values["timestamp"].iloc[-1]], y=[values[key].iloc[-1]], name="Latest " + label, mode="markers", marker={"color": color, "size": 7, "line": {"color": colors["surface"], "width": 2}}, showlegend=False, hoverinfo="skip"))
             if projection:
                 tail = values[values["timestamp"] >= end - timedelta(hours=24)]
                 x = (tail["timestamp"] - end).dt.total_seconds() / 3600
@@ -851,8 +853,20 @@ def make_chart(frame: pd.DataFrame, baseline: dict, metric: str, period: str, pr
                     last_time = tail["timestamp"].iloc[-1].to_pydatetime()
                     figure.add_trace(go.Scatter(x=[last_time, last_time + timedelta(hours=6)], y=[float(y.iloc[-1]), forecast], mode="lines", name=label + " · 6h extrapolation", line={"color": color, "dash": "dash", "width": 2}))
     if not figure.data:
-        figure.add_annotation(text="No measurements for this metric yet.<br>Use Enter current measurements to add a reading.", x=0.5, y=0.5, xref="paper", yref="paper", showarrow=False, font={"color": "#8294ac", "size": 14})
-    figure.update_layout(height=320, margin={"l": 12, "r": 18, "t": 12, "b": 12}, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font={"family": "Segoe UI, Arial, sans-serif", "color": "#94a3b8", "size": 12}, hovermode="x unified", legend={"orientation": "h", "y": 1.14, "x": 0}, xaxis={"gridcolor": "#1c2a3f", "title": None, "zeroline": False}, yaxis={"gridcolor": "#1c2a3f", "title": METRICS[metric]["unit"], "zeroline": False}, hoverlabel={"bgcolor": "#152236", "font_color": "#e2e8f0"})
+        figure.add_annotation(text="No measurements for this metric yet.<br>Use Enter current measurements to add a reading.", x=0.5, y=0.5, xref="paper", yref="paper", showarrow=False, font={"color": colors["secondary"], "size": 12})
+    figure.update_layout(
+        height=280, margin={"l": 45, "r": 12, "t": 18, "b": 40},
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        font={"family": SYSTEM_FONT, "color": colors["secondary"], "size": 11},
+        hovermode="x unified", hoverdistance=30,
+        legend={"orientation": "h", "y": 1.15, "x": 0, "font": {"size": 11}},
+        xaxis={"showgrid": False, "title": None, "zeroline": False, "tickformat": "%H:%M\n%b %d", "tickfont": {"size": 10}, "showline": False, "fixedrange": False, "automargin": True},
+        yaxis={"gridcolor": colors["grid"], "griddash": "dot", "title": {"text": METRICS[metric]["unit"], "font": {"size": 10}, "standoff": 8}, "zeroline": False, "nticks": 5, "showline": False, "tickfont": {"size": 10}, "automargin": True},
+        hoverlabel={"bgcolor": colors["surface"], "font_color": colors["text"], "font_family": SYSTEM_FONT, "font_size": 12, "bordercolor": colors["line"]},
+    )
+    if not figure.data:
+        figure.update_xaxes(visible=False)
+        figure.update_yaxes(visible=False)
     return figure
 
 
@@ -880,107 +894,6 @@ def report_markdown(report: dict) -> str:
     return "\n".join(lines)
 
 
-CSS = """
-<style>
-:root {color-scheme: dark; --teal:#2dd4bf; --muted:#94a3b8;}
-.stApp {background:#0c121e;color:#e2e8f0;font-family:'Segoe UI',Arial,sans-serif;}
-header[data-testid="stHeader"] {background:transparent;}
-[data-testid="stMainBlockContainer"] {max-width:1530px;padding:2.6rem 2.3rem 2rem;}
-[data-testid="stSidebar"] {background:#090e17;border-right:1px solid #1c2a3f;min-width:245px;max-width:275px;}
-[data-testid="stSidebarContent"] {padding-top:0.8rem;}
-[data-testid="stSidebarUserContent"] {padding:1.1rem 1.2rem 1rem!important;}
-[data-testid="stSidebarHeader"] {height:24px!important;min-height:24px!important;margin-bottom:0!important;}
-[data-testid="stSidebarCollapseButton"] span {color:#94a3b8!important;}
-h1,h2,h3,h4,p,label,[data-testid="stMarkdownContainer"] {color:#e2e8f0;}
-h1 {font-size:1.85rem!important;letter-spacing:-0.7px;font-weight:720!important;padding-top:0!important;}
-h2 {font-size:1.3rem!important;} h3 {font-size:1.1rem!important;}
-[data-testid="stCaptionContainer"] p {color:#8294ac;font-size:.78rem;line-height:1.55;}
-[data-testid="stWidgetLabel"] p {font-size:.85rem;color:#a8b8cc;}
-[data-testid="stTextInput"] input,[data-testid="stTextArea"] textarea,[data-testid="stNumberInput"] input {background:#111a28;color:#f1f5f9;caret-color:#2dd4bf;}
-[data-baseweb="input"],[data-baseweb="base-input"],[data-baseweb="textarea"],[data-baseweb="select"]>div {background:#111a28!important;border-color:#283d5a!important;color:#e2e8f0!important;}
-[data-baseweb="popover"] [role="listbox"], [data-baseweb="menu"] {background:#152236!important;color:#e2e8f0!important;}
-[data-baseweb="popover"] li {color:#e2e8f0!important;}
-input[role="combobox"],input[type="text"],input[type="number"],textarea {background:#111a28!important;color:#e2e8f0!important;}
-div[role="group"]:has(>input[role="combobox"]) {background:#111a28!important;border:1px solid #283d5a!important;border-radius:10px;}
-button[aria-label="Open"] {background:#111a28!important;color:#94a3b8!important;}
-[role="listbox"],[role="option"] {background:#152236!important;color:#e2e8f0!important;}
-[role="option"][data-focused],[role="option"][aria-selected="true"] {background:#16383c!important;color:#5eead4!important;}
-button[data-variant="segmented_control"] {background:#0c121e!important;border-color:#283d5a!important;color:#94a3b8!important;}
-button[data-variant="segmented_control"] p {color:inherit!important;}
-button[data-variant="segmented_control"][aria-checked="true"] {background:#2dd4bf15!important;border-color:#2dd4bf77!important;color:#5eead4!important;}
-input[type="checkbox"] {accent-color:#2dd4bf;}
-details {border-color:#1c2a3f!important;}
-button[kind="secondary"],button[kind="tertiary"] {background:#111a28;color:#aebfd3;border:1px solid #283d5a;border-radius:24px;font-size:.86rem;}
-button[kind="secondary"]:hover,button[kind="tertiary"]:hover {border-color:#2dd4bf;color:#5eead4;background:#132c33;}
-button[kind="primary"] {background:#2dd4bf!important;color:#042f2e!important;border:1px solid #2dd4bf!important;border-radius:24px;font-weight:650;}
-button[kind="primary"] p {color:#042f2e!important;}
-button[kind="secondary"] p,button[kind="tertiary"] p {color:inherit;}
-[data-testid="stSidebar"] .stButton button {text-align:left;justify-content:flex-start;padding:.35rem .9rem;min-height:35px;}
-[data-testid="stSidebar"] .stButton button[kind="tertiary"] {border-color:transparent;background:transparent;}
-[data-testid="stSidebar"] .stButton button[kind="primary"] {background:rgba(45,212,191,.12)!important;color:#2dd4bf!important;border-color:transparent!important;}
-[data-testid="stSidebar"] .stButton button[kind="primary"] p {color:#2dd4bf!important;}
-.st-key-emergency_shortcut button {background:#fb7185!important;color:#450a0a!important;border-color:#fb7185!important;box-shadow:0 4px 16px #fb71851c;}
-.st-key-emergency_shortcut button p {color:#450a0a!important;font-weight:700;}
-[data-testid="stVerticalBlockBorderWrapper"] {border-color:#1c2a3f!important;border-radius:16px;}
-.st-key-trend_panel,.st-key-ground_panel,.st-key-data_used,.st-key-recommendations,.st-key-causes,.st-key-findings,.st-key-profile_card,.st-key-baseline_form,.st-key-symptom_form {background:#111a28;border:1px solid #1c2a3f;border-radius:16px;padding:20px;}
-.st-key-recommendations {border-color:#2dd4bf66;min-height:310px;}
-[data-testid="stForm"] {border-color:#1c2a3f;background:#111a28;border-radius:16px;}
-[data-testid="stExpander"] {background:#111a28;border-color:#1c2a3f;border-radius:12px;}
-.brand {display:flex;align-items:center;gap:10px;margin:4px 0 17px;font-weight:750;font-size:19px;letter-spacing:-.6px;}
-.brand-mark {width:31px;height:31px;display:flex;align-items:center;justify-content:center;border-radius:9px;background:linear-gradient(135deg,#2dd4bf,#0284c7);color:#042f2e;font-size:22px;}
-.eyebrow {font-size:10px;font-weight:700;letter-spacing:1.7px;color:#64748b;text-transform:uppercase;margin-bottom:12px;}
-.mission-card {padding:16px;border:1px solid #1c2a3f;background:#0c121e;border-radius:14px;margin:12px 0 16px;font-size:12px;color:#94a3b8;line-height:1.8;}
-.mission-card strong {color:#dbeafe;}
-.statusbar {display:flex;align-items:center;justify-content:space-between;gap:15px;flex-wrap:wrap;border-bottom:1px solid #1c2a3f;padding:0 0 16px;margin-bottom:24px;font-size:12px;color:#94a3b8;}
-.statusbar strong {color:#e2e8f0;font-weight:600;}
-.status-right {display:flex;gap:22px;align-items:center;flex-wrap:wrap;}
-.dot {display:inline-block;height:6px;width:6px;border-radius:50%;margin:0 6px 1px 0;}
-.small-label {font-size:10px;letter-spacing:1.2px;text-transform:uppercase;color:#8294ac;font-weight:650;margin-bottom:10px;}
-.deviation-banner {padding:17px 21px;background:#f59e0b09;border:1px solid #f59e0b66;border-radius:14px;margin:4px 0 5px;}
-.deviation-banner .small-label {color:#f59e0b;margin-bottom:5px;}
-.deviation-banner strong {font-size:15px;font-weight:600;}
-.metrics-grid {display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:14px;margin:15px 0 22px;}
-.metric-card {padding:17px 18px;border:1px solid #1c2a3f;background:#111a28;border-radius:14px;min-height:125px;}
-.metric-card.selected {border-color:#2dd4bf99;background:#2dd4bf08;}
-.metric-title {display:flex;align-items:center;justify-content:space-between;color:#94a3b8;font-size:12px;}
-.metric-symbol {color:#536c83;font-size:18px;}
-.metric-value {font-size:26px;letter-spacing:-.9px;color:#f1f5f9;font-weight:700;margin:10px 0 5px;white-space:nowrap;}
-.metric-value small {font-size:12px;font-weight:400;letter-spacing:0;color:#94a3b8;}
-.metric-baseline {font-size:11px;color:#7b91ab;}
-.metric-status {margin-top:8px;font-size:10px;}
-.data-row {display:flex;justify-content:space-between;gap:12px;padding:11px 0;border-bottom:1px solid #1c2a3f;font-size:12px;color:#94a3b8;}
-.data-row strong {color:#e2e8f0;text-align:right;font-weight:500;}
-.chat-prompt {background:#111a28;border:1px solid #1c2a3f;border-radius:4px 16px 16px;padding:17px 20px;font-size:14px;line-height:1.6;margin:10px 0 16px;}
-.severity-grid {display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:8px 0 22px;}
-.severity-card {background:#111a28;border:1px solid #1c2a3f;color:#94a3b8;padding:18px 15px;border-radius:12px;font-size:12px;min-height:62px;display:flex;align-items:center;}
-.recommendation {display:flex;gap:16px;padding:13px 0;line-height:1.65;font-size:14px;border-bottom:1px solid #1c2a3f;}
-.recommendation span {color:#2dd4bf;font-family:monospace;font-size:12px;padding-top:3px;}
-.cause {padding:12px 0;border-bottom:1px solid #1c2a3f;font-size:13px;line-height:1.6;}
-.cause small {color:#8294ac;font-size:11px;display:block;margin-top:4px;}
-.cause-badge {font-size:10px;color:#5eead4;float:right;padding-left:6px;}
-.profile-header {display:flex;align-items:center;gap:18px;padding:4px 0 12px;}
-.profile-header h2 {margin:0;padding:0;font-size:clamp(1.35rem,3vw,1.9rem);overflow-wrap:anywhere;}
-.profile-header p {margin:5px 0 0;color:#94a3b8;overflow-wrap:anywhere;}
-.profile-avatar {width:72px;height:72px;flex-shrink:0;border-radius:50%;border:2px solid transparent;background:linear-gradient(#111a28,#111a28) padding-box,linear-gradient(135deg,#2dd4bf,#0284c7) border-box;display:grid;place-items:center;color:#5eead4;font-size:23px;font-weight:650;}
-.profile-fields {display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,145px),1fr));gap:10px;margin:0;}
-.profile-fields div {min-width:0;padding:12px 14px;border:1px solid #1c2a3f;border-radius:12px;background:#0c121e;}
-.profile-fields dt {font-size:12px;color:#94a3b8;}
-.profile-fields dd {margin:4px 0 0;color:#e2e8f0;overflow-wrap:anywhere;}
-.profile-baselines dd {color:#5eead4;font-weight:650;}
-.table-fallback {max-height:420px;overflow:auto;border:1px solid #1c2a3f;border-radius:12px;background:#111a28;}
-.table-fallback table {width:100%;border-collapse:separate;border-spacing:0;font-size:13px;color:#e2e8f0;}
-.table-fallback th,.table-fallback td {padding:10px 12px;text-align:left;vertical-align:top;border-bottom:1px solid #1c2a3f;}
-.table-fallback th {position:sticky;top:0;background:#172439;color:#dbeafe;white-space:nowrap;}
-.table-fallback td {min-width:85px;max-width:380px;overflow-wrap:anywhere;}
-.table-fallback tr:last-child td {border-bottom:0;}
-.footer-note {font-size:10px;color:#536c83;border-top:1px solid #1c2a3f;padding-top:18px;margin-top:26px;line-height:1.7;}
-.step {color:#2dd4bf;font-size:11px;letter-spacing:.7px;}
-@media(max-width:1100px) {.metrics-grid {gap:8px}.metric-card {padding:14px 11px}.metric-value {font-size:22px}}
-@media(max-width:760px) {.metrics-grid {grid-template-columns:repeat(2,minmax(0,1fr))}.severity-grid {grid-template-columns:repeat(2,minmax(0,1fr))}[data-testid="stMainBlockContainer"] {padding:2.5rem 1rem 1rem}.statusbar {font-size:11px}}
-</style>
-"""
-
-
 def markup(content: str) -> None:
     st.markdown(content, unsafe_allow_html=True)
 
@@ -996,16 +909,25 @@ def display_table(rows: list[dict], *, row_height: int | None = None) -> None:
 
 
 def configure_native_theme() -> None:
-    """Bootstrap the native theme without requiring a second config file.
+    """Keep native canvas tables, calendars and controls in the selected palette.
 
-    Streamlit 1.66+ sends theme configuration on each script restart. The config
-    module is an internal API: keep this narrow compatibility adapter here so that
-    native canvas tables, calendars, alerts and sliders share the single-file theme.
-    A one-time rerun sends the changed theme before any application widgets render.
+    The desktop app already uses this narrow Streamlit compatibility adapter.
+    Theme options are sent to the client on the next script restart. The extra
+    rerun happens only when the appearance actually changes, before widgets draw.
     """
-    options = {"theme.base": "dark", "theme.primaryColor": "#2dd4bf", "theme.backgroundColor": "#0c121e",
-               "theme.secondaryBackgroundColor": "#111a28", "theme.textColor": "#e2e8f0",
-               "theme.sidebar.backgroundColor": "#090e17"}
+    colors = palette(st.session_state.get("appearance", "Light"))
+    options = {
+        "theme.base": colors["scheme"], "theme.primaryColor": colors["accent"],
+        "theme.backgroundColor": colors["background"], "theme.secondaryBackgroundColor": colors["inset"],
+        "theme.textColor": colors["text"], "theme.font": SYSTEM_FONT,
+        "theme.baseFontSize": 14, "theme.baseRadius": "0.6rem", "theme.buttonRadius": "0.4rem",
+        "theme.borderColor": colors["line"], "theme.showWidgetBorder": True,
+        "theme.dataframeHeaderBackgroundColor": colors["inset"], "theme.dataframeHeaderTextColor": colors["secondary"],
+        "theme.dataframeBorderColor": colors["line"], "theme.linkColor": colors["accent"],
+        "theme.redColor": colors["red"], "theme.orangeColor": colors["orange"], "theme.greenColor": colors["green"],
+        "theme.sidebar.backgroundColor": colors["inset"], "theme.sidebar.secondaryBackgroundColor": colors["surface"],
+        "theme.sidebar.textColor": colors["text"], "theme.sidebar.primaryColor": colors["accent"],
+    }
     changed = False
     for key, value in options.items():
         if streamlit_config.get_option(key) != value:
@@ -1015,8 +937,13 @@ def configure_native_theme() -> None:
         st.rerun()
 
 
+def set_appearance(store: Store) -> None:
+    store.set_setting("appearance", st.session_state["appearance"])
+
+
 def navigate(page: str) -> None:
     st.session_state.pop("editing_profile", None)
+    st.session_state["creating_profile"] = False
     st.session_state["page"] = page
 
 
@@ -1049,7 +976,7 @@ def trigger_emergency(store: Store, crew_id: str, reason: str = "Manual emergenc
         store.audit(crew_id, "emergency_activated", active)
     store.enqueue(active)
     store.sync_queue()
-    st.session_state["page"] = "Emergency"
+    navigate("Emergency")
 
 
 def send_report(store: Store, report: dict) -> None:
@@ -1066,8 +993,8 @@ def send_report(store: Store, report: dict) -> None:
 
 
 def request_new_profile() -> None:
-    st.session_state["creating_profile"] = True
     navigate("Profile")
+    st.session_state["creating_profile"] = True
 
 
 def select_crew(store: Store) -> None:
@@ -1078,7 +1005,7 @@ def select_crew(store: Store) -> None:
 
 def sidebar(store: Store, profiles: list[dict]) -> dict | None:
     with st.sidebar:
-        markup('<div class="brand"><span class="brand-mark">✦</span>AstroGuard <span style="color:#2dd4bf">AI</span></div><div class="eyebrow">Crew medical console</div>')
+        markup(f'<div class="brand"><span class="brand-mark">{icon("astera", 34)}</span><div><div class="brand-name">Astera</div><div class="brand-subtitle">Crew medical console</div></div></div>')
         ids = [profile["id"] for profile in profiles]
         profile = None
         pending = st.session_state.pop("pending_crew_selection", None)
@@ -1094,30 +1021,35 @@ def sidebar(store: Store, profiles: list[dict]) -> dict | None:
             profile = store.profile(crew_id)
         else:
             st.caption("Create your own crew profile to begin.")
-        st.button("+ New profile", key="new_profile", width="stretch", on_click=request_new_profile)
-        for page in ("Dashboard", "Symptom Check", "Health Log", "Profile"):
-            st.button(page, key="nav_" + page.replace(" ", "_"), disabled=not ids, type="primary" if st.session_state["page"] == page else "tertiary", width="stretch", on_click=navigate, args=(page,))
-        if profile and profile.get("mission"):
-            day = mission_day(profile)
-            markup(f'<div class="mission-card"><div class="small-label">Current mission</div><strong>{escape(profile["mission"])}</strong>' + (f'<br>Mission day {day:03d}' if day else '') + '</div>')
-        if "offline_toggle" not in st.session_state:
-            st.session_state["offline_toggle"] = store.setting("offline", True)
-        st.toggle("Offline mode", key="offline_toggle", on_change=set_offline, args=(store,))
-        queued = sum(item["status"] == "queued" for item in store.transmissions())
-        st.caption(f"SQLite · {store.path.name}\n\n{queued} report(s) queued · local ground simulator")
-        st.button("Emergency", key="emergency_shortcut", disabled=profile is None, width="stretch", shortcut="Ctrl+E", on_click=trigger_emergency, args=(store, profile["id"] if profile else ""))
-        st.caption("NASA Space Apps · Prototype v2.0")
+        st.button("New profile", key="new_profile", type="tertiary", width="stretch", on_click=request_new_profile)
+        markup('<div class="sidebar-heading">Health</div>')
+        for page, label in (("Dashboard", "Overview"), ("Symptom Check", "Symptom Check"), ("Health Log", "Health Log"), ("Profile", "Profile")):
+            st.button(label, key="nav_" + page.replace(" ", "_"), disabled=not ids, type="primary" if st.session_state["page"] == page else "tertiary", width="stretch", on_click=navigate, args=(page,))
+        with st.container(key="sidebar_utilities"):
+            if profile and profile.get("mission"):
+                day = mission_day(profile)
+                markup(f'<div class="mission-card"><div class="small-label">Current mission</div><strong>{escape(profile["mission"])}</strong>' + (f'<div class="mission-day">Mission day {day:03d}</div>' if day else '') + '</div>')
+            st.segmented_control("Appearance", ["Light", "Dark"], key="appearance", required=True, width="stretch", on_change=set_appearance, args=(store,))
+            if "offline_toggle" not in st.session_state:
+                st.session_state["offline_toggle"] = store.setting("offline", True)
+            st.toggle("Offline mode", key="offline_toggle", on_change=set_offline, args=(store,))
+            queued = sum(item["status"] == "queued" for item in store.transmissions())
+            st.caption(f"SQLite · {store.path.name}\n\n{queued} report(s) queued · local ground simulator")
+            st.button("Emergency", key="emergency_shortcut", disabled=profile is None, width="stretch", shortcut="Ctrl+E", on_click=trigger_emergency, args=(store, profile["id"] if profile else ""))
+            markup('<div class="sidebar-footnote">NASA Space Apps · Prototype v2.0</div>')
     return profile
 
 
-def topbar(store: Store, profile: dict) -> None:
+def topbar(store: Store, profile: dict | None = None) -> None:
     offline = store.setting("offline", True)
-    color = "#f59e0b" if offline else "#34d399"
+    color = "var(--orange)" if offline else "var(--green)"
     mode = "Offline mode" if offline else "Online demo"
     link = "Unavailable · queued locally" if offline else "Local simulator connected"
-    day = mission_day(profile)
-    mission = f" &nbsp;·&nbsp; Mission day {day}" if day else ""
-    markup(f'<div class="statusbar"><span><strong>{escape(profile["name"])}</strong>{mission}</span><div class="status-right"><span><i class="dot" style="background:{color}"></i>{mode}</span><span><i class="dot" style="background:{color}"></i>Ground link: {link}</span></div></div>')
+    day = mission_day(profile) if profile else None
+    mission = f" · Mission day {day}" if day else ""
+    context = escape(profile["name"]) + mission if profile else "Crew health"
+    page = "New profile" if profile is None or st.session_state.get("creating_profile") else {"Dashboard": "Overview", "Symptom Check": "Symptom Check", "Health Log": "Health Log", "Profile": "Profile", "Emergency": "Emergency"}.get(st.session_state["page"], "Overview")
+    markup(f'<div class="statusbar"><div class="toolbar-leading"><strong class="toolbar-title">{page}</strong><span class="toolbar-divider"></span><span class="toolbar-context">{context}</span></div><div class="status-right"><span class="connection-state"><i class="dot" style="background:{color}"></i>{mode}</span><span class="toolbar-link">{icon("link", 17)}<span>Ground link: {link}</span></span></div></div>')
 
 
 def measurement_reference(baseline: dict, key: str) -> str:
@@ -1191,14 +1123,14 @@ def metric_cards(vitals: dict, baseline: dict, selected: str) -> None:
         keys = ("sys", "dia") if metric == "bp" else (metric,)
         has_value = any(known(vitals.get(key)) for key in keys)
         if not has_value:
-            status, color = "No measurement", "#64748b"
+            status, color = "No measurement", "var(--tertiary)"
         elif not comparable(vitals, baseline, metric):
-            status, color = "Baseline not set", "#8294ac"
+            status, color = "Baseline not set", "var(--tertiary)"
         elif metric in changed:
-            status, color = "Outside baseline", "#f59e0b"
+            status, color = "Outside baseline", "var(--orange)"
         else:
             partial = not all(known(vitals.get(key)) and known(baseline.get(key)) for key in keys)
-            status, color = ("Partial comparison", "#8294ac") if partial else ("Within baseline", "#34d399")
+            status, color = ("Partial comparison", "var(--tertiary)") if partial else ("Within baseline", "var(--green)")
         raw = metric_value(vitals, metric)
         if not has_value:
             value = "—"
@@ -1207,7 +1139,7 @@ def metric_cards(vitals: dict, baseline: dict, selected: str) -> None:
         else:
             number, unit = raw.split(" ", 1)
             value = escape(number) + " <small>" + escape(unit) + "</small>"
-        cards.append(f'<div class="metric-card {"selected" if metric == selected else ""}"><div class="metric-title">{escape(info["label"])}<span class="metric-symbol">{info["symbol"]}</span></div><div class="metric-value">{value}</div><div class="metric-baseline">Baseline: {escape(metric_value(baseline, metric))}</div><div class="metric-status" style="color:{color}"><i class="dot" style="background:{color}"></i>{status}</div></div>')
+        cards.append(f'<div class="metric-card {"selected" if metric == selected else ""}"><div class="metric-title">{escape(info["label"])}<span class="metric-symbol">{icon(metric, 19)}</span></div><div class="metric-value">{value}</div><div class="metric-baseline">Baseline: {escape(metric_value(baseline, metric))}</div><div class="metric-status" style="color:{color}"><i class="dot" style="background:{color}"></i>{status}</div></div>')
     markup('<div class="metrics-grid">' + "".join(cards) + "</div>")
 
 
@@ -1230,16 +1162,10 @@ def clear_measurement_fields(crew_id: str) -> None:
         st.session_state[f"manual_{crew_id}_{key}"] = None
 
 
-def dashboard(store: Store, profile: dict) -> None:
+def measurement_entry(store: Store, profile: dict, *, expanded: bool = False) -> None:
+    """The original measurement form, grouped below the health summary."""
     crew_id, baseline = profile["id"], profile["baseline"]
-    title, action = st.columns([3, 1])
-    with title:
-        st.title("Health overview")
-        st.caption("Your latest recorded measurements and personal baselines.")
-    with action:
-        st.button("Check symptoms", type="primary", width="stretch", shortcut="Ctrl+K", on_click=navigate, args=("Symptom Check",))
-    readings_panel = st.container()
-    with st.expander("Enter current measurements", expanded=True):
+    with st.expander("Enter current measurements", expanded=expanded):
         drafts = st.session_state.setdefault("measurement_drafts", {})
         with st.form("manual_telemetry_" + crew_id, clear_on_submit=False):
             st.caption("Fields keep their values for this session. Review them before saving a new measurement. Leave unknown values blank.")
@@ -1252,11 +1178,21 @@ def dashboard(store: Store, profile: dict) -> None:
                 except ValueError as error:
                     st.error(str(error))
                 else:
-                    st.success("Measurements saved to SQLite.")
+                    notify("Measurements saved to SQLite.")
+                    st.rerun()
             clear.form_submit_button("Clear fields", key="clear_measured_vitals", on_click=clear_measurement_fields, args=(crew_id,))
 
+
+def dashboard(store: Store, profile: dict) -> None:
+    crew_id, baseline = profile["id"], profile["baseline"]
+    title, action = st.columns([3, 1])
+    with title:
+        st.title("Health overview")
+        st.caption("Your latest recorded measurements and personal baselines.")
+    with action:
+        st.button("Check symptoms", key="check_symptoms", type="primary", width="stretch", shortcut="Ctrl+K", on_click=navigate, args=("Symptom Check",))
     vitals, frame = store.latest_vitals(crew_id), store.telemetry(crew_id)
-    with readings_panel:
+    with st.container():
         changed = deviations(vitals, baseline)
         compared = sum(comparable(vitals, baseline, metric) for metric in METRICS)
         if changed:
@@ -1265,12 +1201,13 @@ def dashboard(store: Store, profile: dict) -> None:
             summary = f"No deviations in {compared} available metric comparison(s)"
         else:
             summary = "Enter your baseline and current readings to compare your health metrics"
-        markup(f'<div class="deviation-banner"><div class="small-label">Deviations from personal baseline</div><strong>{escape(summary)}</strong></div>')
+        state_icon = "emergency" if changed else ("check" if compared else "shield")
+        markup(f'<div class="deviation-banner {"warning" if changed else ""}"><span class="summary-icon">{icon(state_icon, 18)}</span><div><div class="small-label">Deviations from personal baseline</div><strong>{escape(summary)}</strong></div></div>')
+        metric_cards(vitals, baseline, st.session_state.get("trend_metric", "hr"))
         with st.expander("Review deviations"):
             for metric in changed:
                 st.write(f"**{METRICS[metric]['label']}:** {metric_value(vitals, metric)} · baseline {metric_value(baseline, metric)}")
             st.caption(f"{compared}/5 metrics can be compared. Missing baselines or measurements are shown as —. See the measurement fields for personal reference ranges.")
-        metric_cards(vitals, baseline, st.session_state.get("trend_metric", "hr"))
         screening = assess(profile, vitals, {"description": "", "pain": None, "duration_hours": None, "red_flags": [], "kind": "routine"})
         if screening["severity_index"] == 3:
             st.error("Critical telemetry detected. Alert the crew medical officer and activate the onboard emergency protocol now.")
@@ -1278,7 +1215,7 @@ def dashboard(store: Store, profile: dict) -> None:
         if screening["telemetry_stale"]:
             st.warning("The last recorded measurement is older than 6 hours. Enter fresh measurements before relying on it.")
     with st.container(key="trend_panel"):
-        markup('<div class="small-label">Trends vs. personal baseline</div>')
+        markup(f'<div class="small-label chart-heading">{icon("bp", 19)} Trends vs. personal baseline</div>')
         controls, periods = st.columns([4, 1.5])
         metric = controls.segmented_control("Metric", list(METRICS), key="trend_metric", default="hr", required=True, format_func=lambda key: METRICS[key]["label"], label_visibility="collapsed")
         period = periods.segmented_control("Time window", ["24h", "3d", "7d"], key="trend_period", default="3d", required=True, label_visibility="collapsed")
@@ -1288,11 +1225,10 @@ def dashboard(store: Store, profile: dict) -> None:
     wellness, sleep_avg = store.wellbeing(crew_id), sleep_average_3d(frame)
     columns = st.columns(3)
     cards = [("Sleep · recent nights", display_number(sleep_avg, 1, " h"), "Personal target: " + metric_value(baseline, "sleep")), ("Stress · self-report", display_number(wellness["stress"], 0, "/10"), "Mood: " + (wellness["mood"] or "—")), ("Activity", display_number(wellness["activity"], 0, " min"), "Recorded date: " + (wellness["day"] or "—"))]
-    for column, (label, value, caption) in zip(columns, cards):
+    for column, (label, value, caption), symbol in zip(columns, cards, ("sleep", "stress", "activity")):
         with column:
-            with st.container(border=True):
-                markup(f'<div class="small-label">{escape(label)}</div><div style="font-size:23px;font-weight:650;color:#e2e8f0">{escape(value)}</div>')
-                st.caption(caption)
+            markup(f'<div class="wellbeing-card"><div class="wellbeing-heading">{icon(symbol, 17)}{escape(label)}</div><div class="wellbeing-value">{escape(value)}</div><div class="wellbeing-note">{escape(caption)}</div></div>')
+    measurement_entry(store, profile, expanded=frame.empty)
     with st.expander("Daily wellbeing & activity check-in"):
         with st.form("wellbeing_form_" + crew_id):
             a, b, c = st.columns(3)
@@ -1348,7 +1284,7 @@ def clear_baseline_inputs(store: Store, crew_id: str) -> None:
 
 
 def dictate(store: Store, crew_id: str) -> None:
-    draft = {**empty_draft(), "description": "Тупая головная боль в области лба около четырёх часов, лёгкое головокружение при повороте головы. Последние ночи плохо сплю.", "location": "Лоб / голова", "duration": 4.0, "pain": 4, "quality": "Dull", "course": "Constant", "onset": "Gradual", "trigger": "Head movement"}
+    draft = {**empty_draft(), "description": "A dull headache around my forehead for about four hours, with slight dizziness when turning my head. I have not been sleeping well over the last few nights.", "location": "Forehead / head", "duration": 4.0, "pain": 4, "quality": "Dull", "course": "Constant", "onset": "Gradual", "trigger": "Head movement"}
     store.save_draft(crew_id, draft, explicit=True)
     for field, value in draft.items():
         st.session_state["symptom_" + field + "_" + crew_id] = value
@@ -1365,7 +1301,7 @@ def symptom_check(store: Store, profile: dict) -> None:
             return
     st.title("Symptom check")
     st.caption("Your symptom draft is saved to SQLite as each field is committed, including when working offline.")
-    markup('<div style="border:1px solid #fb718544;background:#fb718506;border-radius:12px;padding:13px 18px;font-size:12px;line-height:1.6">Chest pain, trouble breathing, loss of consciousness or severe bleeding: press <strong style="color:#fb7185">Emergency · Ctrl+E</strong> immediately.</div>')
+    markup(f'<div class="emergency-note">{icon("emergency", 20)}<div>Chest pain, trouble breathing, loss of consciousness or severe bleeding: press <strong>Emergency · Ctrl+E</strong> immediately.</div></div>')
     left, right = st.columns([2.15, 1], gap="large")
     vitals, sleep_avg = store.latest_vitals(crew_id), sleep_average_3d(store.telemetry(crew_id))
     with right:
@@ -1382,8 +1318,8 @@ def symptom_check(store: Store, profile: dict) -> None:
         def arguments(field: str) -> dict:
             return {"key": "symptom_" + field + "_" + crew_id, "on_change": persist_symptom_field, "args": (store, crew_id, field)}
         with st.container(key="symptom_form"):
-            st.text_area("What do you feel? / Опишите жалобы", height=115, max_chars=4000, placeholder="Enter your own symptoms…", **arguments("description"))
-            st.text_input("Where? / Локализация", max_chars=160, **arguments("location"))
+            st.text_area("What do you feel?", height=115, max_chars=4000, placeholder="Enter your own symptoms…", **arguments("description"))
+            st.text_input("Where do you feel it?", max_chars=160, **arguments("location"))
             a, b, c = st.columns([1, 1, 1.4])
             a.number_input("How long?", min_value=0.0, max_value=10000.0, value=None, step=0.5, **arguments("duration"))
             b.selectbox("Time unit", ["Minutes", "Hours", "Days"], **arguments("unit"))
@@ -1532,39 +1468,42 @@ def health_log(store: Store, profile: dict) -> None:
                     st.session_state["show_result_" + crew_id] = True
                     navigate("Symptom Check")
                     st.rerun()
-        a, b, c = st.columns([2.2, 1.5, 1.5])
-        search = a.text_input("Search symptoms", key="log_search", placeholder="Search your records…")
-        severity = b.selectbox("Severity", ["All"] + list(SEVERITIES), key="log_severity")
-        earliest = min((parse_time(report["created_at"]).date() for report in reports), default=utc_now().date())
-        dates = c.date_input("UTC date range", value=(earliest, utc_now().date()), key="log_dates")
-        dates = dates if isinstance(dates, (tuple, list)) else (dates, dates)
-        filtered = [report for report in reports if len(dates) == 2 and dates[0] <= parse_time(report["created_at"]).date() <= dates[1] and (severity == "All" or report["severity"] == severity) and search.casefold() in report["symptoms"].get("description", "").casefold()]
-        if filtered:
-            rows = [{"Recorded (UTC)": parse_time(report["created_at"]).strftime("%d %b %Y %H:%M"), "Event / symptoms": report["symptoms"].get("description", ""), "Severity": report["severity"], "Heart rate": metric_value(report["vitals"], "hr"), "Blood pressure": metric_value(report["vitals"], "bp"), "Ground sync": "Delivered · simulator" if report["sync_status"] == "delivered_demo" else report["sync_status"]} for report in filtered]
-            display_table(rows, row_height=56)
-            saved_names = {item["id"]: f"{parse_time(item['created_at']):%d %b %H:%M} · {item['severity']} · {item['symptoms'].get('description', '')[:55]}" for item in filtered}
-            selected_id = st.selectbox("Select a saved report", list(saved_names), format_func=lambda value, labels=saved_names: labels[value], key="log_selected")
-            selected = next(report for report in filtered if report["id"] == selected_id)
-            buttons = st.columns(3)
-            if buttons[0].button("Open assessment", key="open_saved", width="stretch"):
-                st.session_state["assessment_" + crew_id] = selected_id
-                st.session_state["show_result_" + crew_id] = True
-                navigate("Symptom Check")
-                st.rerun()
-            buttons[1].download_button("Download selected .md", report_markdown(selected), file_name=f"astroguard_{selected_id[:8]}.md", mime="text/markdown", width="stretch")
-            buttons[2].button("Send selected to ground", key="send_saved", width="stretch", on_click=send_report, args=(store, selected))
-        else:
-            st.info("No saved reports match these filters. Assess your symptoms and choose Save to health log.")
+        with st.container(key="log_filters"):
+            a, b, c = st.columns([2.2, 1.5, 1.5])
+            search = a.text_input("Search symptoms", key="log_search", placeholder="Search your records…")
+            severity = b.selectbox("Severity", ["All"] + list(SEVERITIES), key="log_severity")
+            earliest = min((parse_time(report["created_at"]).date() for report in reports), default=utc_now().date())
+            dates = c.date_input("UTC date range", value=(earliest, utc_now().date()), key="log_dates")
+            dates = dates if isinstance(dates, (tuple, list)) else (dates, dates)
+            filtered = [report for report in reports if len(dates) == 2 and dates[0] <= parse_time(report["created_at"]).date() <= dates[1] and (severity == "All" or report["severity"] == severity) and search.casefold() in report["symptoms"].get("description", "").casefold()]
+        with st.container(key="log_records"):
+            if filtered:
+                rows = [{"Recorded (UTC)": parse_time(report["created_at"]).strftime("%d %b %Y %H:%M"), "Event / symptoms": report["symptoms"].get("description", ""), "Severity": report["severity"], "Heart rate": metric_value(report["vitals"], "hr"), "Blood pressure": metric_value(report["vitals"], "bp"), "Ground sync": "Delivered · simulator" if report["sync_status"] == "delivered_demo" else report["sync_status"]} for report in filtered]
+                display_table(rows, row_height=56)
+                saved_names = {item["id"]: f"{parse_time(item['created_at']):%d %b %H:%M} · {item['severity']} · {item['symptoms'].get('description', '')[:55]}" for item in filtered}
+                selected_id = st.selectbox("Select a saved report", list(saved_names), format_func=lambda value, labels=saved_names: labels[value], key="log_selected")
+                selected = next(report for report in filtered if report["id"] == selected_id)
+                buttons = st.columns(3)
+                if buttons[0].button("Open assessment", key="open_saved", width="stretch"):
+                    st.session_state["assessment_" + crew_id] = selected_id
+                    st.session_state["show_result_" + crew_id] = True
+                    navigate("Symptom Check")
+                    st.rerun()
+                buttons[1].download_button("Download selected .md", report_markdown(selected), file_name=f"astroguard_{selected_id[:8]}.md", mime="text/markdown", width="stretch")
+                buttons[2].button("Send selected to ground", key="send_saved", width="stretch", on_click=send_report, args=(store, selected))
+            else:
+                markup(f'<div class="empty-state"><span class="empty-state-icon">{icon("log", 26)}</span><strong>No matching reports</strong><p>No saved reports match these filters. Assess your symptoms and choose Save to health log.</p></div>')
         archive = {"application": APP_NAME, "schema_version": 2, "exported_at": iso_time(), "profile": profile, "symptom_draft": store.draft(crew_id), "reports": store.reports(crew_id, saved_only=False), "telemetry": json.loads(store.telemetry(crew_id).to_json(orient="records", date_format="iso")), "activity_log": store.activity(crew_id)}
         st.download_button("Export full medical archive (.json)", json_text(archive), file_name=f"astroguard_{crew_id}_archive.json", mime="application/json", key="export_archive")
         st.caption(f"{len(filtered)} displayed · {len(reports)} saved. The archive also includes persistent drafts, measurements and the action log.")
     with action_tab:
         activity = store.activity(crew_id)
-        if activity:
-            rows = [{"Recorded (UTC)": parse_time(item["timestamp"]).strftime("%d %b %Y %H:%M:%S"), "Action": item["action"], "Record": item["entity_id"] or "—", "Details": json.dumps(item["details"], ensure_ascii=False)} for item in activity]
-            display_table(rows)
-        else:
-            st.info("Actions performed with this version will appear here. Existing medical reports are preserved.")
+        with st.container(key="activity_records"):
+            if activity:
+                rows = [{"Recorded (UTC)": parse_time(item["timestamp"]).strftime("%d %b %Y %H:%M:%S"), "Action": item["action"], "Record": item["entity_id"] or "—", "Details": json.dumps(item["details"], ensure_ascii=False)} for item in activity]
+                display_table(rows)
+            else:
+                markup(f'<div class="empty-state"><span class="empty-state-icon">{icon("log", 26)}</span><strong>No activity yet</strong><p>Actions performed with this version will appear here. Existing medical reports are preserved.</p></div>')
         st.caption("Data source: local SQLite file")
         st.code(str(store.path.resolve()), language=None)
 
@@ -1594,7 +1533,7 @@ def ground_panel(store: Store, crew_id: str, report: dict | None = None) -> None
         with right:
             transmissions = store.transmissions(crew_id)
             queued = sum(item["status"] == "queued" for item in transmissions)
-            markup(f'<div class="small-label">Pending reports</div><div style="font-size:29px;color:#f59e0b;font-weight:650">{queued:02d}</div>')
+            markup(f'<div class="small-label">Pending reports</div><div class="queue-count {"pending" if queued else ""}">{queued:02d}</div>')
         if report:
             st.button("Send summary to ground", key="ground_send", on_click=send_report, args=(store, report), type="primary")
         if transmissions:
@@ -1619,9 +1558,11 @@ def assessment_view(store: Store, report: dict) -> None:
             st.rerun()
     markup('<div class="small-label">Severity</div>')
     cards = []
-    for index, (label, color) in enumerate(zip(SEVERITIES, SEVERITY_COLORS)):
-        style = f"border-color:{color};background:{color}0c;color:{color};font-weight:650" if index == report["severity_index"] else ""
-        cards.append(f'<div class="severity-card" style="{style}"><i class="dot" style="background:{color};flex-shrink:0"></i>{label}</div>')
+    severity_colors = ("var(--accent)", "var(--green)", "var(--orange)", "var(--red)")
+    for index, (label, color) in enumerate(zip(SEVERITIES, severity_colors)):
+        active = index == report["severity_index"]
+        style = f"color:{color}" if active else ""
+        cards.append(f'<div class="severity-card {"active" if active else ""}" style="{style}"><i class="dot" style="background:{color}"></i>{label}</div>')
     markup('<div class="severity-grid">' + "".join(cards) + "</div>")
     if report["severity_index"] == 3:
         st.error("Activate onboard emergency procedures now. This application cannot issue a distress call or command evacuation.")
@@ -1640,7 +1581,7 @@ def assessment_view(store: Store, report: dict) -> None:
     a, b = st.columns([2.1, 1], gap="large")
     with a:
         with st.container(key="recommendations"):
-            markup('<div class="small-label" style="color:#2dd4bf">Recommendations</div>')
+            markup('<div class="small-label">Recommendations</div>')
             for index, recommendation in enumerate(report["recommendations"], 1):
                 markup(f'<div class="recommendation"><span>{index:02d}</span><div>{escape(recommendation)}</div></div>')
         with st.expander("Symptoms & medical context"):
@@ -1656,8 +1597,7 @@ def assessment_view(store: Store, report: dict) -> None:
         with st.container(key="findings"):
             markup('<div class="small-label">Data findings</div>')
             for finding in sorted(report["findings"], key=lambda item: not item["deviation"]):
-                color = "#f59e0b" if finding["deviation"] else "#94a3b8"
-                markup(f'<div style="font-size:12px;line-height:1.7;padding:7px 0;color:{color}">{escape(finding["text"])}</div>')
+                markup(f'<div class="finding {"deviation" if finding["deviation"] else ""}">{escape(finding["text"])}</div>')
             if report.get("sleep_average_3d") is not None:
                 st.caption(f"Sleep, last 3 nights: {report['sleep_average_3d']:.1f} h avg")
     actions = st.columns([1.4, 1.2, 1, 1])
@@ -1697,9 +1637,9 @@ def emergency_view(store: Store, profile: dict) -> None:
     a, b = st.columns([2, 1], gap="large")
     with a:
         with st.container(key="recommendations"):
-            markup('<div class="small-label" style="color:#fb7185">Immediate onboard actions</div>')
+            markup('<div class="small-label" style="color:var(--red)">Immediate onboard actions</div>')
             for index, recommendation in enumerate(report["recommendations"], 1):
-                markup(f'<div class="recommendation"><span style="color:#fb7185">{index:02d}</span><div>{escape(recommendation)}</div></div>')
+                markup(f'<div class="recommendation emergency"><span>{index:02d}</span><div>{escape(recommendation)}</div></div>')
         st.caption("Use the mission's approved medical procedures. This educational interface does not replace trained crew or the flight surgeon.")
         if st.button("Close incident after crew review", key="close_incident"):
             store.set_setting("active_emergency_" + profile["id"], None)
@@ -1715,27 +1655,32 @@ def emergency_view(store: Store, profile: dict) -> None:
 
 
 def main() -> None:
-    configure_native_theme()
-    st.set_page_config(page_title="AstroGuard AI · Crew Health", page_icon="✦", layout="wide", initial_sidebar_state="expanded")
-    st.html(CSS)
+    st.set_page_config(page_title="Astera · Crew Health", page_icon="✦", layout="wide", initial_sidebar_state="expanded")
     st.session_state.setdefault("page", "Dashboard")
     store = Store()
     try:
         store.initialize()
+        preferred_appearance = store.setting("appearance", "Light")
+        st.session_state.setdefault("appearance", preferred_appearance if preferred_appearance in ("Light", "Dark") else "Light")
+        configure_native_theme()
+        st.html(stylesheet(st.session_state["appearance"]))
+        st.html(ENGLISH_LOCALE, unsafe_allow_javascript=True)
         store.sync_queue()
         profile = sidebar(store, store.profiles())
         notice = st.session_state.pop("notice", None)
+        creating_profile = profile is None or st.session_state.get("creating_profile", False)
+        if not creating_profile:
+            scroll_on_view_change(profile["id"])
+        topbar(store, None if creating_profile else profile)
         if notice:
             st.info(notice)
-        if profile is None or st.session_state.get("creating_profile", False):
+        if creating_profile:
             create_profile_view(store)
         else:
-            scroll_on_view_change(profile["id"])
-            topbar(store, profile)
             page = st.session_state["page"]
             views = {"Dashboard": dashboard, "Symptom Check": symptom_check, "Health Log": health_log, "Profile": profile_view, "Emergency": emergency_view}
             views.get(page, dashboard)(store, profile)
-        markup('<div class="footer-note">ASTROGUARD AI &nbsp; / &nbsp; NASA SPACE APPS CHALLENGE MVP<br>Your own profiles · persistent SQLite drafts and reports · explainable local assessment · simulated ground receiver. Educational decision support only.</div>')
+        markup('<div class="footer-note"><strong>Astera</strong> &nbsp;·&nbsp; NASA Space Apps Challenge MVP<br>Your own profiles · persistent SQLite drafts and reports · explainable local assessment · simulated ground receiver. Educational decision support only.</div>')
     except (sqlite3.Error, OSError) as error:
         st.error("Local storage is unavailable. Check that the SQLite file and its directory are writable and the database is not locked.")
         st.code(str(error), language=None)
