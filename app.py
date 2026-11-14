@@ -858,10 +858,10 @@ def make_chart(frame: pd.DataFrame, baseline: dict, metric: str, period: str, pr
         height=280, margin={"l": 45, "r": 12, "t": 18, "b": 40},
         paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
         font={"family": SYSTEM_FONT, "color": colors["secondary"], "size": 11},
-        hovermode="x unified", hoverdistance=30,
+        hovermode=False, dragmode=False,
         legend={"orientation": "h", "y": 1.15, "x": 0, "font": {"size": 11}},
-        xaxis={"showgrid": False, "title": None, "zeroline": False, "tickformat": "%H:%M\n%b %d", "tickfont": {"size": 10}, "showline": False, "fixedrange": False, "automargin": True},
-        yaxis={"gridcolor": colors["grid"], "griddash": "dot", "title": {"text": METRICS[metric]["unit"], "font": {"size": 10}, "standoff": 8}, "zeroline": False, "nticks": 5, "showline": False, "tickfont": {"size": 10}, "automargin": True},
+        xaxis={"showgrid": False, "title": None, "zeroline": False, "tickformat": "%H:%M\n%b %d", "tickfont": {"size": 10}, "showline": False, "fixedrange": True, "automargin": True},
+        yaxis={"gridcolor": colors["grid"], "griddash": "dot", "title": {"text": METRICS[metric]["unit"], "font": {"size": 10}, "standoff": 8}, "zeroline": False, "nticks": 5, "showline": False, "tickfont": {"size": 10}, "fixedrange": True, "automargin": True},
         hoverlabel={"bgcolor": colors["surface"], "font_color": colors["text"], "font_family": SYSTEM_FONT, "font_size": 12, "bordercolor": colors["line"]},
     )
     if not figure.data:
@@ -1117,7 +1117,7 @@ def create_profile_view(store: Store) -> None:
         st.rerun()
 
 
-def metric_cards(vitals: dict, baseline: dict, selected: str) -> None:
+def metric_cards(vitals: dict, baseline: dict) -> None:
     changed, cards = deviations(vitals, baseline), []
     for metric, info in METRICS.items():
         keys = ("sys", "dia") if metric == "bp" else (metric,)
@@ -1139,7 +1139,7 @@ def metric_cards(vitals: dict, baseline: dict, selected: str) -> None:
         else:
             number, unit = raw.split(" ", 1)
             value = escape(number) + " <small>" + escape(unit) + "</small>"
-        cards.append(f'<div class="metric-card {"selected" if metric == selected else ""}"><div class="metric-title">{escape(info["label"])}<span class="metric-symbol">{icon(metric, 19)}</span></div><div class="metric-value">{value}</div><div class="metric-baseline">Baseline: {escape(metric_value(baseline, metric))}</div><div class="metric-status" style="color:{color}"><i class="dot" style="background:{color}"></i>{status}</div></div>')
+        cards.append(f'<div class="metric-card"><div class="metric-title">{escape(info["label"])}<span class="metric-symbol">{icon(metric, 19)}</span></div><div class="metric-value">{value}</div><div class="metric-baseline">Baseline: {escape(metric_value(baseline, metric))}</div><div class="metric-status" style="color:{color}"><i class="dot" style="background:{color}"></i>{status}</div></div>')
     markup('<div class="metrics-grid">' + "".join(cards) + "</div>")
 
 
@@ -1203,7 +1203,7 @@ def dashboard(store: Store, profile: dict) -> None:
             summary = "Enter your baseline and current readings to compare your health metrics"
         state_icon = "emergency" if changed else ("check" if compared else "shield")
         markup(f'<div class="deviation-banner {"warning" if changed else ""}"><span class="summary-icon">{icon(state_icon, 18)}</span><div><div class="small-label">Deviations from personal baseline</div><strong>{escape(summary)}</strong></div></div>')
-        metric_cards(vitals, baseline, st.session_state.get("trend_metric", "hr"))
+        metric_cards(vitals, baseline)
         with st.expander("Review deviations"):
             for metric in changed:
                 st.write(f"**{METRICS[metric]['label']}:** {metric_value(vitals, metric)} · baseline {metric_value(baseline, metric)}")
@@ -1220,7 +1220,7 @@ def dashboard(store: Store, profile: dict) -> None:
         metric = controls.segmented_control("Metric", list(METRICS), key="trend_metric", default="hr", required=True, format_func=lambda key: METRICS[key]["label"], label_visibility="collapsed")
         period = periods.segmented_control("Time window", ["24h", "3d", "7d"], key="trend_period", default="3d", required=True, label_visibility="collapsed")
         projection = st.checkbox("Show 6h trend projection", key="trend_projection", help="Requires at least 3 readings in the latest 24 hours. Illustrative linear extrapolation, not a validated clinical forecast.")
-        st.plotly_chart(make_chart(frame, baseline, metric, period, projection), width="stretch", theme=None, config={"displaylogo": False, "scrollZoom": False}, key="vitals_plot")
+        st.plotly_chart(make_chart(frame, baseline, metric, period, projection), width="stretch", theme=None, config={"displaylogo": False, "displayModeBar": False, "staticPlot": True, "scrollZoom": False}, key="vitals_plot")
         st.caption("Only recorded measurements are plotted. A baseline band appears only when you have entered that personal reference value.")
     wellness, sleep_avg = store.wellbeing(crew_id), sleep_average_3d(frame)
     columns = st.columns(3)
@@ -1354,10 +1354,6 @@ def symptom_check(store: Store, profile: dict) -> None:
                     st.session_state["assessment_" + crew_id] = report["id"]
                     st.session_state["show_result_" + crew_id] = True
                     st.rerun()
-        saved_at = store.draft(crew_id).get("updated_at")
-        if saved_at:
-            st.caption(f"SQLite draft · saved {parse_time(saved_at):%d %b %Y %H:%M:%S UTC}")
-        st.caption("Local evidence-composed rules · no external API. Recognized phrases, data gaps and reasons are visible in the result.")
 
 
 @st.dialog("Delete profile?")
@@ -1680,7 +1676,6 @@ def main() -> None:
             page = st.session_state["page"]
             views = {"Dashboard": dashboard, "Symptom Check": symptom_check, "Health Log": health_log, "Profile": profile_view, "Emergency": emergency_view}
             views.get(page, dashboard)(store, profile)
-        markup('<div class="footer-note"><strong>Astera</strong> &nbsp;·&nbsp; NASA Space Apps Challenge MVP<br>Your own profiles · persistent SQLite drafts and reports · explainable local assessment · simulated ground receiver. Educational decision support only.</div>')
     except (sqlite3.Error, OSError) as error:
         st.error("Local storage is unavailable. Check that the SQLite file and its directory are writable and the database is not locked.")
         st.code(str(error), language=None)
