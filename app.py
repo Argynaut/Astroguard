@@ -1068,7 +1068,7 @@ def sidebar(store: Store, profiles: list[dict]) -> dict | None:
             st.caption("Create your own crew profile to begin.")
         st.button("New profile", key="new_profile", type="tertiary", width="stretch", on_click=request_new_profile)
         markup('<div class="sidebar-heading">Health</div>')
-        for page, label in (("Dashboard", "Overview"), ("Symptom Check", "Symptom Check"), ("Health Log", "Health Log"), ("Profile", "Profile"), ("Mental Health", "Mental Health")):
+        for page, label in (("Dashboard", "Overview"), ("Astera AI", "Astera AI"), ("Symptom Check", "Symptom Check"), ("Health Log", "Health Log"), ("Profile", "Profile"), ("Mental Health", "Mental Health")):
             st.button(label, key="nav_" + page.replace(" ", "_"), disabled=not ids, type="primary" if st.session_state["page"] == page else "tertiary", width="stretch", on_click=navigate, args=(page,))
         with st.container(key="sidebar_utilities"):
             if profile and profile.get("mission"):
@@ -1093,7 +1093,7 @@ def topbar(store: Store, profile: dict | None = None) -> None:
     day = mission_day(profile) if profile else None
     mission = f" · Mission day {day}" if day else ""
     context = escape(profile["name"]) + mission if profile else "Crew health"
-    page = "New profile" if profile is None or st.session_state.get("creating_profile") else {"Dashboard": "Overview", "Symptom Check": "Symptom Check", "Health Log": "Health Log", "Profile": "Profile", "Emergency": "Emergency", "Mental Health": "Mental Health"}.get(st.session_state["page"], "Overview")
+    page = "New profile" if profile is None or st.session_state.get("creating_profile") else {"Dashboard": "Overview", "Astera AI": "Astera AI", "Symptom Check": "Symptom Check", "Health Log": "Health Log", "Profile": "Profile", "Emergency": "Emergency", "Mental Health": "Mental Health"}.get(st.session_state["page"], "Overview")
     markup(f'<div class="statusbar"><div class="toolbar-leading"><strong class="toolbar-title">{page}</strong><span class="toolbar-divider"></span><span class="toolbar-context">{context}</span></div><div class="status-right"><span class="connection-state"><i class="dot" style="background:{color}"></i>{mode}</span><span class="toolbar-link">{icon("link", 17)}<span>Ground link: {link}</span></span></div></div>')
 
 
@@ -1302,7 +1302,7 @@ def mental_health_view(store: Store, profile: dict) -> None:
     st.caption("A moment for your state of mind, and a connection to your support team.")
     checkins = store.mental_checkins(profile["id"])
     mental_checkin_view(store, profile, checkins[0] if checkins else None)
-    counselor_view(store, profile)
+    st.button("Consult Astera AI →", key="consult_astera_ai", on_click=navigate, args=("Astera AI",), width="stretch")
 
 
 def recent_checkins_view(checkins: list[dict]) -> None:
@@ -1412,7 +1412,8 @@ def counselor_reply(context: dict, history: list[dict], prompt: str, *, offline:
     if offline or not api_key:
         return fallback()
     instruction = (
-        "You are Astera Crew Counselor, an empathetic aerospace behavioral-health support assistant. "
+        "You are Astera AI, Astera's onboard clinical and behavioral telemetry support assistant. "
+        "Be empathetic and grounded in the crew's saved measurements; offer behavioral-health support and explain telemetry without diagnosing. "
         "Reply in English, concisely (under 150 words), with actionable micro-recovery steps. "
         "Adapt to logged stress, sleep versus personal baseline, state of mind, and reflection. "
         "End every reply with exactly one warm, natural, context-aware follow-up question. "
@@ -1438,45 +1439,96 @@ def counselor_reply(context: dict, history: list[dict], prompt: str, *, offline:
     return fallback()
 
 
+def queue_counselor_prompt(crew_id: str, prompt: str | None = None) -> None:
+    """Commit the user turn in the submit callback, before the script reruns.
+
+    Pending IDs survive interrupted generation. Both the root composer and quick
+    actions use this path, so clearing a mobile composer cannot lose its prompt.
+    """
+    if prompt is None:
+        prompt = st.session_state.get("counselor_input_" + crew_id, "")
+    if not isinstance(prompt, str) or not prompt.strip():
+        return
+    message = {"id": uuid.uuid4().hex, "role": "user", "content": prompt.strip()}
+    st.session_state.setdefault("counselor_history_" + crew_id, []).append(message)
+    st.session_state.setdefault("counselor_pending_" + crew_id, []).append(message["id"])
+
+
+def complete_counselor_turn(crew_id: str, context: dict, *, offline: bool, api_key: str | None) -> dict | None:
+    """Complete one pending turn, without duplicating a reply after a rerun."""
+    history = st.session_state.setdefault("counselor_history_" + crew_id, [])
+    pending = st.session_state.setdefault("counselor_pending_" + crew_id, [])
+    if not pending:
+        return None
+    turn_id = pending[0]
+    if any(message.get("reply_to") == turn_id for message in history):
+        pending.remove(turn_id)
+        return None
+    index = next(i for i, message in enumerate(history) if message.get("id") == turn_id)
+    # The current user prompt is passed separately, exactly once. Later queued
+    # prompts must not leak into the context of an earlier response.
+    reply, status = counselor_reply(context, history[:index], history[index]["content"], offline=offline, api_key=api_key)
+    message = {"role": "assistant", "content": reply, "reply_to": turn_id}
+    history.insert(index + 1, message)
+    st.session_state["counselor_status_" + crew_id] = status
+    pending.remove(turn_id)
+    return message
+
+
+def clear_counselor_chat(crew_id: str) -> None:
+    st.session_state["counselor_history_" + crew_id] = []
+    st.session_state["counselor_pending_" + crew_id] = []
+    st.session_state.pop("counselor_status_" + crew_id, None)
+
+
+def counselor_status_label(crew_id: str, offline: bool, api_key: str | None) -> str:
+    fallback = st.session_state.get("counselor_status_" + crew_id) == "Onboard Offline Protocol"
+    return "Astera AI · Autonomous Onboard Core" if offline or not api_key or fallback else "Astera AI · Telemetry Link Active"
+
+
 def counselor_view(store: Store, profile: dict) -> None:
+    """A full-page chat; the composer deliberately stays in Streamlit's root."""
     crew_id = profile["id"]
-    history_key, status_key = "counselor_history_" + crew_id, "counselor_status_" + crew_id
-    history = st.session_state.setdefault(history_key, [])
+    context = counselor_context(store, profile)
     offline, key = store.setting("offline", True), counselor_api_key()
-    status = "Onboard Offline Protocol" if offline or not key else st.session_state.get(status_key, "Gemini AI Counselor")
-    with st.container(key="crew_counselor"):
-        heading, clear = st.columns([4, 1])
-        heading.subheader("Astera Crew Counselor")
-        if clear.button("Clear chat", key="counselor_clear_" + crew_id, type="tertiary"):
-            st.session_state[history_key] = []
-            st.session_state.pop(status_key, None)
-            st.rerun()
-        status_slot = st.empty()
-        status_slot.markdown(f'<span class="counselor-status">{status}</span>', unsafe_allow_html=True)
-        st.caption("Support for small recovery steps, not a replacement for your flight psychologist. With Gemini online, sending a message shares your chat and latest saved health context, including your reflection, with Google. Offline mode keeps responses onboard.")
-        conversation = st.container()
-        with conversation:
-            for message in history:
-                with st.chat_message(message["role"]):
-                    st.markdown(message["content"])
-        prompt = None
+    st.title("Astera AI")
+    st.caption("Onboard clinical & behavioral telemetry assistant")
+    status_slot = st.empty()
+    status_slot.markdown(f'<span class="counselor-status">{counselor_status_label(crew_id, offline, key)}</span>', unsafe_allow_html=True)
+    values = (("Heart Rate", display_number(context["heart_rate_bpm"], 0, " bpm")),
+              ("Sleep", display_number(context["sleep_hours"], 1, " h")),
+              ("Stress Level", display_number(context["stress_1_to_5"], 0, "/5")),
+              ("Mission Day", display_number(context["mission_day"], 0)))
+    markup('<div class="ai-context-strip" aria-label="Latest saved crew telemetry">' + "".join(
+        f'<div class="ai-context-metric"><span>{label}</span><strong>{escape(value)}</strong></div>' for label, value in values) + '</div>')
+    sample = context.get("measurement_recorded_at")
+    checkin = context.get("checkin_recorded_at")
+    st.caption("Latest saved crew context · Measurements: " + (f"{parse_time(sample):%d %b · %H:%M UTC}" if sample else "not recorded")
+               + " · Mental check-in: " + (f"{parse_time(checkin):%d %b · %H:%M UTC}" if checkin else "not recorded"))
+    st.button("Clear chat", key="counselor_clear_" + crew_id, type="tertiary", on_click=clear_counselor_chat, args=(crew_id,))
+    st.caption("Decision support for your crew. Follow approved mission protocols and consult your flight surgeon or psychologist when needed.")
+    # Never put this composer in a bordered card, column, or form: root placement
+    # lets Streamlit handle the mobile keyboard and its bottom-pinned layout.
+    st.chat_input("Ask Astera AI about your vitals, stress, or recovery...", key="counselor_input_" + crew_id,
+                  max_chars=4000, on_submit=queue_counselor_prompt, args=(crew_id,))
+    with st.container(key="ai_starters"):
         starters = st.columns(3)
         for column, label in zip(starters, ("Help me decompress", "Analyze my stress & sleep", "Pre-sleep wind-down")):
-            if column.button(label, key="counselor_starter_" + crew_id + label, width="stretch"):
-                prompt = label
-        typed = st.chat_input("How are you feeling?", key="counselor_input_" + crew_id, max_chars=4000)
-        prompt = typed or prompt
-        if prompt:
-            with st.spinner("Taking a moment…", show_time=False):
-                reply, status = counselor_reply(counselor_context(store, profile), history, prompt, offline=offline, api_key=key)
-            history.extend([{"role": "user", "content": prompt}, {"role": "assistant", "content": reply}])
-            st.session_state[status_key] = status
-            status_slot.markdown(f'<span class="counselor-status">{status}</span>', unsafe_allow_html=True)
-            with conversation:
-                with st.chat_message("user"):
-                    st.markdown(prompt)
-                with st.chat_message("assistant"):
-                    st.markdown(reply)
+            column.button(label, key="counselor_starter_" + crew_id + label, width="stretch",
+                          on_click=queue_counselor_prompt, args=(crew_id, label))
+    history = st.session_state.setdefault("counselor_history_" + crew_id, [])
+    with st.container(key="ai_conversation"):
+        for message in history:
+            with st.chat_message("Astera AI" if message["role"] == "assistant" else "user",
+                                 avatar=":material/auto_awesome:" if message["role"] == "assistant" else None):
+                st.markdown(message["content"])
+        while st.session_state.get("counselor_pending_" + crew_id):
+            with st.spinner("Astera AI is analyzing crew telemetry..."):
+                message = complete_counselor_turn(crew_id, context, offline=offline, api_key=key)
+            status_slot.markdown(f'<span class="counselor-status">{counselor_status_label(crew_id, offline, key)}</span>', unsafe_allow_html=True)
+            if message:
+                with st.chat_message("Astera AI", avatar=":material/auto_awesome:"):
+                    st.markdown(message["content"])
 
 
 def dashboard(store: Store, profile: dict) -> None:
@@ -1984,7 +2036,7 @@ def main() -> None:
             create_profile_view(store)
         else:
             page = st.session_state["page"]
-            views = {"Dashboard": dashboard, "Symptom Check": symptom_check, "Health Log": health_log, "Profile": profile_view, "Mental Health": mental_health_view, "Emergency": emergency_view}
+            views = {"Dashboard": dashboard, "Astera AI": counselor_view, "Symptom Check": symptom_check, "Health Log": health_log, "Profile": profile_view, "Mental Health": mental_health_view, "Emergency": emergency_view}
             views.get(page, dashboard)(store, profile)
     except (sqlite3.Error, OSError) as error:
         st.error("Local storage is unavailable. Check that the SQLite file and its directory are writable and the database is not locked.")
