@@ -32,7 +32,7 @@ PALETTES = {
         "toolbar": "rgba(245,245,247,.88)", "text": "#1d1d1f", "secondary": "#6e6e73",
         "tertiary": "#7c7c82", "accent": "#162B5C", "accent_hover": "#1E3A8A", "accent_soft": "#e8f1ff",
         "line": "#e5e5e9", "grid": "#eeeeF1", "control_border": "#d8d8dd",
-        "green": "#1E7E48", "green_soft": "#edf7ef", "orange": "#a96000",
+        "green": "#1E7E48", "green_soft": "#edf7ef", "orange": "#a96000", "yellow": "#806000", "yellow_soft": "#FFF6DF",
         "critical": "#B42332", "warning_text": "#6B4500", "warning_surface": "#FFF6DF", "warning_border": "#A66C13",
         "orange_soft": "#fff5e5", "red": "#d12432", "red_soft": "#fff0f1",
         "chart_secondary": "#8795ad", "selection": "#d8e6fb",
@@ -45,7 +45,7 @@ PALETTES = {
         "toolbar": "rgba(28,28,30,.88)", "text": "#f5f5f7", "secondary": "#aeaeb2",
         "tertiary": "#98989f", "accent": "#3B66B8", "accent_hover": "#4F7CD1", "accent_soft": "#163451",
         "line": "#3a3a3d", "grid": "#3a3a3d", "control_border": "#4a4a4e",
-        "green": "#4ADE80", "green_soft": "#22392a", "orange": "#FFB340",
+        "green": "#4ADE80", "green_soft": "#22392a", "orange": "#FFB340", "yellow": "#FFE599", "yellow_soft": "#3A2E14",
         "critical": "#FF6B6B", "warning_text": "#FFF0C2", "warning_surface": "#3A2E14", "warning_border": "#D99B26",
         "orange_soft": "#3d3222", "red": "#ff7b83", "red_soft": "#40282c",
         "chart_secondary": "#9baecb", "selection": "#30465e",
@@ -265,7 +265,29 @@ button[data-variant="segmented_control"] p {color:inherit!important;white-space:
 .recent-checkin p {font-size:12px;color:var(--secondary);margin:5px 0 0;overflow-wrap:anywhere;}
 .stress-badge {background:var(--inset);color:var(--secondary);border-radius:6px;padding:3px 8px;font-size:10px;white-space:nowrap;}
 .stress-badge.elevated {background:var(--orange-soft);color:var(--orange);}
-.st-key-mental_checkin {background:var(--surface);border-radius:13px;padding:22px 24px;box-shadow:var(--shadow);}
+.st-key-daily_checkin_form,.st-key-daily_result,.st-key-daily_history,.st-key-psych_support {background:var(--surface);border-radius:13px;padding:22px 24px;box-shadow:var(--shadow);}
+.daily-group-title {font-size:13px;font-weight:600;color:var(--text);margin:14px 0 4px;}
+.daily-status-card,.daily-summary {--daily-color:var(--secondary);--daily-soft:var(--inset);}
+.daily-status-card.green,.daily-summary.green {--daily-color:var(--green);--daily-soft:var(--green-soft);}
+.daily-status-card.yellow,.daily-summary.yellow {--daily-color:var(--yellow);--daily-soft:var(--yellow-soft);}
+.daily-status-card.orange,.daily-summary.orange {--daily-color:var(--orange);--daily-soft:var(--orange-soft);}
+.daily-status-card.red,.daily-summary.red {--daily-color:var(--critical);--daily-soft:var(--red-soft);}
+.daily-status-card {display:flex;align-items:center;justify-content:space-between;gap:18px;border-left:4px solid var(--daily-color);padding:16px 18px;background:var(--daily-soft);border-radius:11px;}
+.daily-status-card h3 {font-size:16px!important;margin:10px 0 4px!important;color:var(--text);}
+.daily-status-card p {font-size:12px;color:var(--secondary);margin:0;}
+.daily-status-card > strong {font-size:32px;color:var(--daily-color);white-space:nowrap;letter-spacing:-1px;}
+.daily-status-card small,.daily-domain small {font-size:13px;color:var(--secondary);font-weight:400;letter-spacing:0;}
+.daily-status-pill {color:var(--daily-color);font-size:12px;font-weight:650;}
+.daily-domain-grid {display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:14px 0;}
+.daily-domain {background:var(--inset);border-radius:9px;padding:14px;display:flex;flex-direction:column;gap:9px;min-width:0;}
+.daily-domain span {color:var(--secondary);font-size:11px;overflow-wrap:anywhere;}
+.daily-domain strong {color:var(--text);font-size:22px;font-weight:600;}
+.daily-summary {border-left:3px solid transparent;}
+.daily-summary .wellbeing-heading {color:var(--daily-color);font-weight:600;}
+.daily-summary.orange,.daily-summary.red {border-left-color:var(--daily-color);background:var(--daily-soft);}
+.daily-summary.orange .wellbeing-value,.daily-summary.red .wellbeing-value {color:var(--daily-color);}
+.daily-summary.pending .wellbeing-value {font-size:20px;letter-spacing:-.4px;}
+.st-key-daily_escalation {background:var(--inset);padding:17px;border-radius:10px;}
 .st-key-psych_uplink_panel {background:var(--inset);border-radius:10px;padding:18px;}
 .st-key-psych_uplink_attention {border-left:3px solid var(--orange);padding-left:14px;}
 .mental-advisory {color:var(--orange);background:var(--orange-soft);border-radius:8px;padding:10px 12px;margin-top:12px;font-size:12px;line-height:1.6;}
@@ -350,4 +372,5 @@ button[data-variant="segmented_control"] p {color:inherit!important;white-space:
 @media(max-width:760px) {[data-testid="stMainBlockContainer"] {padding:0 18px 24px;}.statusbar {margin:0 -18px 6px;padding:0 18px;gap:12px;min-height:60px;}.toolbar-context,.toolbar-divider,.toolbar-link {display:none;}.status-right {font-size:10px;}h1 {font-size:27px!important;}.metrics-grid {grid-template-columns:repeat(2,minmax(0,1fr));}.metric-card {padding:17px;}.metric-card:last-child {grid-column:1/-1;}.metric-value {font-size:29px;}.profile-fields,.profile-baselines {grid-template-columns:repeat(2,minmax(0,1fr));}.st-key-trend_panel,.st-key-ground_panel,.st-key-data_used,.st-key-recommendations,.st-key-causes,.st-key-findings,.st-key-profile_card,.st-key-symptom_form,.st-key-log_filters,.st-key-log_records,.st-key-activity_records {padding:19px;}[data-testid="stForm"] {padding:19px;}.deviation-banner {padding:15px;}.statusbar .toolbar-title {margin-left:30px;}}
 @media(prefers-reduced-motion:reduce) {*,*::before,*::after {transition:none!important;animation:none!important;scroll-behavior:auto!important;}}
 @media(max-width:760px) {.ai-context-strip {grid-template-columns:repeat(2,minmax(0,1fr));padding:17px;gap:18px;}.ai-context-metric strong {font-size:21px;}.st-key-ai_starters [data-testid="stHorizontalBlock"] {flex-wrap:wrap;gap:8px;}.st-key-ai_starters [data-testid="stColumn"] {width:100%!important;flex:1 1 100%!important;min-width:0;}[data-testid="stBottom"] textarea {font-size:16px!important;}}
+@media(max-width:760px) {.st-key-daily_checkin_form,.st-key-daily_result,.st-key-daily_history,.st-key-psych_support {padding:18px;}.daily-domain-grid {grid-template-columns:repeat(2,minmax(0,1fr));}.daily-status-card {align-items:flex-start;flex-direction:column;gap:12px;}.daily-status-card > strong {font-size:29px;}.st-key-daily_checkin_form [data-testid="stHorizontalBlock"] {flex-wrap:wrap;}.st-key-daily_checkin_form [data-testid="stColumn"] {width:100%!important;flex:1 1 100%!important;min-width:0;}}
 """
