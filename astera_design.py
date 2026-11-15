@@ -32,7 +32,8 @@ PALETTES = {
         "toolbar": "rgba(245,245,247,.88)", "text": "#1d1d1f", "secondary": "#6e6e73",
         "tertiary": "#7c7c82", "accent": "#162B5C", "accent_hover": "#1E3A8A", "accent_soft": "#e8f1ff",
         "line": "#e5e5e9", "grid": "#eeeeF1", "control_border": "#d8d8dd",
-        "green": "#248a3d", "green_soft": "#edf7ef", "orange": "#a96000",
+        "green": "#1E7E48", "green_soft": "#edf7ef", "orange": "#a96000",
+        "critical": "#B42332", "warning_text": "#6B4500", "warning_surface": "#FFF6DF", "warning_border": "#A66C13",
         "orange_soft": "#fff5e5", "red": "#d12432", "red_soft": "#fff0f1",
         "chart_secondary": "#8795ad", "selection": "#d8e6fb",
         "shadow": "0 2px 10px rgba(25,25,30,.025), 0 .5px 1.5px rgba(25,25,30,.07)",
@@ -44,7 +45,8 @@ PALETTES = {
         "toolbar": "rgba(28,28,30,.88)", "text": "#f5f5f7", "secondary": "#aeaeb2",
         "tertiary": "#98989f", "accent": "#3B66B8", "accent_hover": "#4F7CD1", "accent_soft": "#163451",
         "line": "#3a3a3d", "grid": "#3a3a3d", "control_border": "#4a4a4e",
-        "green": "#63d37b", "green_soft": "#22392a", "orange": "#ffb340",
+        "green": "#4ADE80", "green_soft": "#22392a", "orange": "#FFB340",
+        "critical": "#FF6B6B", "warning_text": "#FFF0C2", "warning_surface": "#3A2E14", "warning_border": "#D99B26",
         "orange_soft": "#3d3222", "red": "#ff7b83", "red_soft": "#40282c",
         "chart_secondary": "#9baecb", "selection": "#30465e",
         "shadow": "0 2px 10px rgba(0,0,0,.08), 0 .5px 1px rgba(0,0,0,.22)",
@@ -230,6 +232,8 @@ button[data-variant="segmented_control"] p {color:inherit!important;white-space:
 [data-testid="stExpanderDetails"] {padding:4px 19px 18px;}
 [data-testid="stAlert"] {border:0;border-radius:10px;font-size:12px;padding:13px 17px;}
 [data-testid="stAlert"] p {font-size:12px;}
+.st-key-stale_measurement_warning [data-testid="stAlert"] {background:var(--warning-surface)!important;color:var(--warning-text)!important;border:1px solid var(--warning-border)!important;}
+.st-key-stale_measurement_warning [data-testid="stAlert"] p,.st-key-stale_measurement_warning [data-testid="stAlert"] svg {color:var(--warning-text)!important;font-weight:500;}
 [data-testid="stDialog"] [role="dialog"] {border:1px solid var(--line);border-radius:15px;background:var(--surface);color:var(--text);box-shadow:0 18px 70px #0000002b;}
 .st-key-delete_profile button,.st-key-confirm_profile_deletion button,.st-key-clear_baseline button {color:var(--red);}
 .st-key-confirm_profile_deletion button {background:var(--red)!important;color:#fff;}
@@ -266,7 +270,7 @@ button[data-variant="segmented_control"] p {color:inherit!important;white-space:
 .metric-value {font-size:clamp(22px,1.9vw,29px);font-weight:600;letter-spacing:-1.2px;color:var(--text);line-height:1.3;margin:16px 0 8px;white-space:nowrap;font-variant-numeric:tabular-nums;}
 .metric-value small {font-size:11px;font-weight:450;letter-spacing:0;color:var(--secondary);}
 .metric-baseline {font-size:10px;color:var(--tertiary);white-space:normal;}
-.metric-status {font-size:10px;margin-top:10px;white-space:normal;}
+.metric-status {font-size:11px;font-weight:600;margin-top:10px;white-space:normal;}
 .chart-heading {display:flex;align-items:center;gap:8px;}
 .chart-heading svg {color:var(--accent);}
 .chart-subtitle {font-size:11px;font-weight:400;color:var(--secondary);margin-top:4px;}
